@@ -45,6 +45,6 @@ __all__ = [
     "_find_optimal_unbounded_param",
     "_invert_laplace_transform_two_parameter",
     "MittagLeffler",
-    vmittag_leffler",
+    "mittag_leffler",
 
 ]
