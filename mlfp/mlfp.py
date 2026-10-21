@@ -1,1 +1,614 @@
+# SPDX-License-Identifier: MIT
+"""
+mlfp: Mittag-Leffler and Prabhakar function, MLF, 
+Mittag-Leffler and Prabhakar function evaluation: 
+Mittag-Leffler ve Prabhakar fonksiyonlarının hesaplanması.
 
+- Two-parameter Mittag-Leffler function, gamma = 1:
+
+      E_{alpha,beta}(z)
+
+  is evaluated with Garrappa's optimal parabolic contour (OPC)
+  Laplace-transform inversion, with a Taylor series branch for
+  small |z|.
+
+- Three-parameter Mittag-Leffler / Prabhakar function, gamma != 1:
+
+      E_{alpha,beta}^gamma(z)
+
+  is evaluated from its defining power series. The OPC residue
+  treatment is not mathematically valid for gamma != 1 because the
+  singularities are generally branch points rather than simple poles.
+
+Compatible with Python 3.15+.
+"""
+
+from __future__ import annotations
+
+import cmath
+import math
+from dataclasses import dataclass
+from typing import ClassVar, Final
+
+import numpy as np
+from numpy.typing import ArrayLike, NDArray
+from scipy.special import gamma as gamma_func
+
+
+class MittagLefflerError(ValueError):
+    """Raised for invalid Mittag-Leffler parameters or arguments."""
+
+# ---------------------------------------------------------------------------
+# Float64 stability limits
+# ---------------------------------------------------------------------------
+_LOG_MAX_FLOAT64: Final[float] = math.log(np.finfo(np.float64).max)  # ≈ 709.78
+
+
+def _safe_z_limit(alpha: float, safety: float = 0.9) -> float:
+    """
+    Upper bound on |z| for which the OPC residue sum fits in float64.
+
+    The residue of the branch point s satisfies |Res| ≲ exp(t·Re(s))·|s|^(1-β),
+    with Re(s) ≈ |z|^(1/α) along the positive real axis.  Requiring
+    t·Re(s) < log(float64 max) yields |z| < log_max^α.
+    """
+    if alpha <= 0.0:
+        return 0.0
+    return safety * _LOG_MAX_FLOAT64 ** alpha
+
+
+# ---------------------------------------------------------------------------
+# Low-level optimal parabolic contour routines (Garrappa OPC)
+# ---------------------------------------------------------------------------
+def _find_optimal_bounded_param(
+    t: float,
+    phi_star0: float,
+    phi_star1: float,
+    p: float,
+    q: float,
+    *,
+    log_eps: float,
+    log_machine_eps: float,
+    fac: float = 1.01,
+    p_eps: float = 1.0e-14,
+    q_eps: float = 1.0e-14,
+) -> tuple[float, float, float]:
+    """Find optimal contour parameters for a right-bounded region."""
+    f_max = math.exp(log_eps - log_machine_eps)
+    threshold = 2.0 * math.sqrt((log_eps - log_machine_eps) / t)
+
+    sqrt_phi0 = math.sqrt(phi_star0)
+    sqrt_phi1 = min(math.sqrt(phi_star1), threshold - sqrt_phi0)
+
+    if p < p_eps and q < q_eps:
+        sqrt_phi_bar0 = sqrt_phi0
+        sqrt_phi_bar1 = sqrt_phi1
+        admissible = True
+
+    elif p < p_eps:
+        sqrt_phi_bar0 = sqrt_phi0
+        if sqrt_phi0 > 0.0:
+            f_min = fac * (sqrt_phi0 / (sqrt_phi1 - sqrt_phi0)) ** q
+        else:
+            f_min = fac
+        if f_min < f_max:
+            f_bar = f_min + f_min / f_max * (f_max - f_min)
+            f_q = f_bar ** (-1.0 / q)
+            sqrt_phi_bar1 = (2.0 * sqrt_phi1 - f_q * sqrt_phi0) / (2.0 + f_q)
+            admissible = True
+        else:
+            admissible = False
+
+    elif q < q_eps:
+        sqrt_phi_bar1 = sqrt_phi1
+        f_min = fac * (sqrt_phi1 / (sqrt_phi1 - sqrt_phi0)) ** p
+        if f_min < f_max:
+            f_bar = f_min + f_min / f_max * (f_max - f_min)
+            f_p = f_bar ** (-1.0 / p)
+            sqrt_phi_bar0 = (2.0 * sqrt_phi0 - f_p * sqrt_phi1) / (2.0 - f_p)
+            admissible = True
+        else:
+            admissible = False
+
+    else:
+        f_min = (
+            fac
+            * (sqrt_phi1 + sqrt_phi0)
+            / (sqrt_phi1 - sqrt_phi0) ** max(p, q)
+        )
+        if f_min < f_max:
+            f_min = max(f_min, 1.5)
+            f_bar = f_min + f_min / f_max * (f_max - f_min)
+            f_p = f_bar ** (-1.0 / p)
+            f_q = f_bar ** (-1.0 / q)
+            weight = -phi_star1 * t / log_eps
+            denominator = 2.0 + weight - (1.0 + weight) * f_p + f_q
+            sqrt_phi_bar0 = (
+                (2.0 + weight + f_q) * sqrt_phi0 + f_p * sqrt_phi1
+            ) / denominator
+            sqrt_phi_bar1 = (
+                -(1.0 + weight) * f_q * sqrt_phi0
+                + (2.0 + weight - (1.0 + weight) * f_p) * sqrt_phi1
+            ) / denominator
+            admissible = True
+        else:
+            admissible = False
+
+    if not admissible:
+        return 0.0, math.inf, 0.0
+
+    log_eps -= math.log(f_bar)
+    weight = -sqrt_phi_bar1**2 * t / log_eps
+
+    mu = (
+        ((1.0 + weight) * sqrt_phi_bar0 + sqrt_phi_bar1) / (2.0 + weight)
+    ) ** 2
+
+    step = (
+        -2.0
+        * math.pi
+        / log_eps
+        * (sqrt_phi_bar1 - sqrt_phi_bar0)
+        / ((1.0 + weight) * sqrt_phi_bar0 + sqrt_phi_bar1)
+    )
+
+    nodes = math.ceil(math.sqrt(1.0 - log_eps / t / mu) / step)
+    return mu, nodes, step
+
+
+def _find_optimal_unbounded_param(
+    t: float,
+    phi_star: float,
+    p: float,
+    *,
+    log_eps: float,
+    log_machine_eps: float,
+    fac: float = 1.01,
+    p_eps: float = 1.0e-14,
+) -> tuple[float, float, float]:
+    """Find optimal contour parameters for a right-unbounded region."""
+    sqrt_phi_star = math.sqrt(phi_star)
+    phi_bar = fac * phi_star if phi_star > 0.0 else 0.01
+    sqrt_phi_bar = math.sqrt(phi_bar)
+
+    f_min = 1.0
+    f_max = 10.0
+    f_target = 5.0
+
+    while True:
+        phi_t = phi_bar * t
+        log_eps_phi_t = log_eps / phi_t
+        nodes = math.ceil(
+            phi_t
+            / math.pi
+            * (
+                1.0
+                - 3.0 * log_eps_phi_t / 2.0
+                + math.sqrt(1.0 - 2.0 * log_eps_phi_t)
+            )
+        )
+        a = math.pi * nodes / phi_t
+        sqrt_mu = (
+            sqrt_phi_bar * abs(4.0 - a)
+            / abs(7.0 - math.sqrt(1.0 + 12.0 * a))
+        )
+        f_bar = ((sqrt_phi_bar - sqrt_phi_star) / sqrt_mu) ** (-p)
+        if p < p_eps or f_min < f_bar < f_max:
+            break
+        sqrt_phi_bar = f_target ** (-1.0 / p) * sqrt_mu + sqrt_phi_star
+        phi_bar = sqrt_phi_bar**2
+
+    mu = sqrt_mu**2
+    step = (
+        (-3.0 * a - 2.0 + 2.0 * math.sqrt(1.0 + 12.0 * a))
+        / (4.0 - a)
+        / nodes
+    )
+
+    roundoff_threshold = (log_eps - log_machine_eps) / t
+    if mu > roundoff_threshold:
+        q = (
+            0.0
+            if abs(p) < p_eps
+            else f_target ** (-1.0 / p) * math.sqrt(mu)
+        )
+        phi_bar = (q + sqrt_phi_star) ** 2
+        if phi_bar < roundoff_threshold:
+            weight = math.sqrt(
+                log_machine_eps / (log_machine_eps - log_eps)
+            )
+            u = math.sqrt(-phi_bar * t / log_machine_eps)
+            mu = roundoff_threshold
+            nodes = math.ceil(
+                weight * log_eps / (2.0 * math.pi * (u * weight - 1.0))
+            )
+            step = weight / nodes
+        else:
+            return mu, math.inf, 0.0
+
+    return mu, nodes, step
+
+
+def _invert_laplace_transform_two_parameter(
+    t: float,
+    z: complex,
+    *,
+    alpha: float,
+    beta: float,
+    tolerance: float,
+) -> complex:
+    """Evaluate E_{alpha,beta}(z t^alpha) via OPC Laplace inversion."""
+    if abs(z) == 0.0:
+        return complex(1.0 / gamma_func(beta))
+
+    machine_eps = float(np.finfo(np.float64).eps)
+    log_machine_eps = math.log(machine_eps)
+    log_tolerance = math.log(tolerance)
+    log_10 = math.log(10.0)
+    log_tolerance_difference = log_tolerance - log_machine_eps
+
+    theta = cmath.phase(z)
+    k_min = math.ceil(-alpha / 2.0 - theta / (2.0 * math.pi))
+    k_max = math.floor(alpha / 2.0 - theta / (2.0 * math.pi))
+
+    k_values = np.arange(k_min, k_max + 1, dtype=np.float64)
+    poles = abs(z) ** (1.0 / alpha) * np.exp(
+        1j * (theta + 2.0 * math.pi * k_values) / alpha
+    )
+
+    phi_values = (poles.real + np.abs(poles)) / 2.0
+    order = np.argsort(phi_values)
+    poles = poles[order]
+    phi_values = phi_values[order]
+
+    nonzero = phi_values > machine_eps
+    poles = poles[nonzero]
+    phi_values = phi_values[nonzero]
+
+    poles = np.insert(poles, 0, 0.0 + 0.0j)
+    phi_values = np.insert(phi_values, 0, 0.0)
+
+    strengths = np.ones(poles.size, dtype=np.float64)
+    strengths[0] = max(0.0, -2.0 * (alpha - beta + 1.0))
+    right_strengths = np.ones(poles.size, dtype=np.float64)
+    right_strengths[-1] = math.inf
+
+    phi_values = np.insert(phi_values, phi_values.size, math.inf)
+
+    region_indices = np.flatnonzero(
+        (phi_values[:-1] < log_tolerance_difference / t)
+        & (phi_values[:-1] < phi_values[1:])
+    )
+    if region_indices.size == 0:
+        raise MittagLefflerError(
+            "No admissible integration region was found."
+        )
+
+    region_count = region_indices[-1] + 1
+    mu_values = np.full(region_count, math.inf, dtype=np.float64)
+    node_values = np.full(region_count, math.inf, dtype=np.float64)
+    step_values = np.full(region_count, math.inf, dtype=np.float64)
+
+    current_log_tolerance = log_tolerance
+    while True:
+        for region in region_indices:
+            if region < poles.size - 1:
+                (mu_values[region],
+                 node_values[region],
+                 step_values[region]) = _find_optimal_bounded_param(
+                    t,
+                    phi_values[region],
+                    phi_values[region + 1],
+                    strengths[region],
+                    right_strengths[region],
+                    log_eps=current_log_tolerance,
+                    log_machine_eps=log_machine_eps,
+                )
+            else:
+                (mu_values[region],
+                 node_values[region],
+                 step_values[region]) = _find_optimal_unbounded_param(
+                    t,
+                    phi_values[region],
+                    strengths[region],
+                    log_eps=current_log_tolerance,
+                    log_machine_eps=log_machine_eps,
+                )
+
+        if np.min(node_values) <= 200.0:
+            break
+        current_log_tolerance += log_10
+        if current_log_tolerance >= 0.0:
+            raise MittagLefflerError(
+                "Failed to find an admissible parabolic contour region."
+            )
+
+    selected = int(np.argmin(node_values))
+    mu = float(mu_values[selected])
+    nodes = int(node_values[selected])
+    step = float(step_values[selected])
+
+    indices = np.arange(-nodes, nodes + 1, dtype=np.float64)
+    u_values = step * indices
+
+    contour = mu * (1j * u_values + 1.0) ** 2
+    derivative = -2.0 * mu * u_values + 2j * mu
+    integrand = (
+        np.exp(contour * t)
+        * contour ** (alpha - beta)
+        / (contour**alpha - z)
+        * derivative
+    )
+
+    integral = step * integrand.sum() / (2j * math.pi)
+
+    # ------------------------------------------------------------------
+    # Residue contribution from branch points to the right of the contour
+    # ------------------------------------------------------------------
+    residue_poles = poles[selected + 1 :]
+
+    if residue_poles.size:
+        # |Res_k| ≈ exp(t·Re(s_k)) · |s_k|^(1-β)
+        # We check the total log-magnitude BEFORE calling exp() so that
+        # overflow is turned into a clear error instead of a silent nan/inf.
+        magnitudes = np.maximum(np.abs(residue_poles), 1e-300)
+        log_mags = (
+            t * residue_poles.real
+            + (1.0 - beta) * np.log(magnitudes)
+        )
+        max_log_mag = float(np.max(log_mags))
+
+        if max_log_mag > _LOG_MAX_FLOAT64 - 1.0:
+            raise MittagLefflerError(
+                "The Mittag-Leffler value is too large to represent in "
+                f"float64: max log|residue| ≈ {max_log_mag:.1f} exceeds "
+                f"log(float64_max) ≈ {_LOG_MAX_FLOAT64:.1f}. "
+                f"|z| = {abs(z):.3g} exceeds the safe range for "
+                f"α = {alpha} (safe limit ≈ {_safe_z_limit(alpha):.3g}). "
+                "Reduce |z|, or use mpmath for higher-precision arithmetic."
+            )
+
+        residues = (
+            residue_poles ** (1.0 - beta) * np.exp(t * residue_poles)
+        ).sum() / alpha
+    else:
+        residues = 0.0
+
+    return complex(integral + residues)
+
+
+# ---------------------------------------------------------------------------
+# Public evaluator
+# ---------------------------------------------------------------------------
+@dataclass(slots=True)
+class MittagLeffler:
+    """
+    Evaluator for the Mittag-Leffler and Prabhakar functions.
+
+    For gamma = 1: ``E_{alpha,beta}(z)`` is evaluated via Garrappa's
+    optimal parabolic contour method (with a Taylor-series branch for
+    small ``|z|``).
+
+    For gamma != 1: ``E_{alpha,beta}^gamma(z)`` is evaluated from the
+    defining power series.
+
+    Parameters
+    ----------
+    alpha : float
+        Positive real order parameter.
+    beta : float
+        Real second parameter.
+    gamma : float
+        Positive real Prabhakar parameter.
+    tolerance : float
+        Target relative accuracy (must satisfy ``0 < tolerance < 1``).
+    series_threshold : float
+        For ``gamma == 1``, arguments with ``|z| <= series_threshold``
+        use the Taylor series instead of OPC.
+    max_series_terms : int
+        Maximum number of terms in the series evaluator.
+    """
+
+    alpha: float
+    beta: float = 1.0
+    gamma: float = 1.0
+    tolerance: float = 1.0e-15
+    series_threshold: float = 0.1
+    max_series_terms: int = 100_000
+
+    # NOTE: ClassVar so that `slots=True` does not treat it as a field.
+    _MACHINE_EPS: ClassVar[float] = float(np.finfo(np.float64).eps)
+
+    def __post_init__(self) -> None:
+        if not math.isfinite(self.alpha) or self.alpha <= 0.0:
+            raise MittagLefflerError(
+                "alpha must be a positive real number."
+            )
+        if not math.isfinite(self.beta):
+            raise MittagLefflerError("beta must be a finite real number.")
+        if not math.isfinite(self.gamma) or self.gamma <= 0.0:
+            raise MittagLefflerError(
+                "gamma must be a positive real number."
+            )
+        if not 0.0 < self.tolerance < 1.0:
+            raise MittagLefflerError(
+                "tolerance must satisfy 0 < tolerance < 1."
+            )
+        if self.series_threshold < 0.0:
+            raise MittagLefflerError(
+                "series_threshold must be non-negative."
+            )
+        if self.max_series_terms < 1:
+            raise MittagLefflerError(
+                "max_series_terms must be a positive integer."
+            )
+
+    # ------------------------------------------------------------------
+    # Real-valued public interface
+    # ------------------------------------------------------------------
+    def __call__(
+        self, z: ArrayLike
+    ) -> NDArray[np.float64] | np.float64:
+        """Evaluate for real arguments (raises on complex input)."""
+        z_array = np.asarray(z, dtype=np.complex128)
+
+        if z_array.ndim == 0:
+            return np.float64(self._evaluate_scalar(complex(z_array)))
+
+        evaluate = np.vectorize(
+            lambda value: self._evaluate_scalar(complex(value)),
+            otypes=[np.float64],
+        )
+        return evaluate(z_array)
+
+    def evaluate(
+        self, z: ArrayLike
+    ) -> NDArray[np.float64] | np.float64:
+        """Explicit alias for :meth:`__call__`."""
+        return self(z)
+
+    # ------------------------------------------------------------------
+    # Complex-valued public interface
+    # ------------------------------------------------------------------
+    def evaluate_complex(
+        self, z: ArrayLike
+    ) -> NDArray[np.complex128] | np.complex128:
+        """
+        Evaluate the Mittag-Leffler / Prabhakar function and return the
+        full complex-valued result.
+
+        For ``gamma == 1`` the OPC method (or the Taylor series, if
+        ``|z| <= series_threshold``) is used; for ``gamma != 1`` the
+        defining power series is used.
+        """
+        z_array = np.asarray(z, dtype=np.complex128)
+
+        if z_array.ndim == 0:
+            return np.complex128(
+                self._evaluate_scalar_complex(complex(z_array))
+            )
+
+        evaluate = np.vectorize(
+            lambda value: self._evaluate_scalar_complex(complex(value)),
+            otypes=[np.complex128],
+        )
+        return evaluate(z_array)
+
+    # ------------------------------------------------------------------
+    # Internal evaluators
+    # ------------------------------------------------------------------
+    def _evaluate_scalar(self, z: complex) -> float:
+        """Return the real part for real z; raise otherwise."""
+        value = self._evaluate_scalar_complex(z)
+        if z.imag == 0.0:
+            return float(value.real)
+        raise MittagLefflerError(
+            "For complex z, use evaluate_complex() to obtain the full "
+            "complex-valued result."
+        )
+
+    def _evaluate_scalar_complex(self, z: complex) -> complex:
+        """Return the full complex-valued Mittag-Leffler result."""
+        if abs(z) < self._MACHINE_EPS:
+            return complex(1.0 / gamma_func(self.beta))
+
+        if self.gamma == 1.0:
+            if abs(z) <= self.series_threshold:
+                return self._evaluate_series(z)
+            return _invert_laplace_transform_two_parameter(
+                t=1.0,
+                z=z,
+                alpha=self.alpha,
+                beta=self.beta,
+                tolerance=self.tolerance,
+            )
+
+        return self._evaluate_series(z)
+
+    def _evaluate_series(self, z: complex) -> complex:
+        r"""
+        Evaluate the Mittag-Leffler / Prabhakar function from
+
+            E_{alpha,beta}^gamma(z)
+            = sum_{k=0}^infty (gamma)_k z^k
+              / (k! Gamma(alpha k + beta)).
+
+        .. note::
+           The k=0 term equals ``1/Gamma(beta)`` (NOT 1 when beta != 1).
+        """
+        # ---- CRITICAL FIX ----
+        # k=0 term is 1/Gamma(beta), not 1.
+        total = complex(1.0 / gamma_func(self.beta))
+
+        pochhammer = 1.0
+        z_power = 1.0 + 0.0j
+        factorial = 1
+
+        for k in range(1, self.max_series_terms + 1):
+            pochhammer *= self.gamma + k - 1.0
+            z_power *= z
+            factorial *= k
+
+            term = (
+                pochhammer
+                * z_power
+                / (factorial * gamma_func(self.alpha * k + self.beta))
+            )
+            total += term
+
+            if abs(term) <= self.tolerance * (1.0 + abs(total)):
+                return total
+
+        raise MittagLefflerError(
+            "The Mittag-Leffler series did not converge to the requested "
+            "tolerance within max_series_terms terms."
+        )
+
+    def __repr__(self) -> str:
+        return (
+            f"{type(self).__name__}("
+            f"alpha={self.alpha!r}, beta={self.beta!r}, "
+            f"gamma={self.gamma!r}, tolerance={self.tolerance!r}, "
+            f"series_threshold={self.series_threshold!r}, "
+            f"max_series_terms={self.max_series_terms!r})"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Convenience function
+# ---------------------------------------------------------------------------
+def mittag_leffler(
+    z: ArrayLike,
+    alpha: float,
+    beta: float = 1.0,
+    gamma: float = 1.0,
+    tolerance: float = 1.0e-15,
+    series_threshold: float = 0.1,
+) -> (
+    NDArray[np.float64]
+    | np.float64
+    | NDArray[np.complex128]
+    | np.complex128
+):
+    """
+    Convenience wrapper.
+
+    If ``z`` has a complex dtype the full complex result is returned;
+    otherwise the real part is returned.
+
+    Examples
+    --------
+    >>> mittag_leffler(1.0, alpha=0.5)
+    5.008980080762283
+    """
+    evaluator = MittagLeffler(
+        alpha=alpha,
+        beta=beta,
+        gamma=gamma,
+        tolerance=tolerance,
+        series_threshold=series_threshold,
+    )
+    z_array = np.asarray(z)
+    if np.iscomplexobj(z_array):
+        return evaluator.evaluate_complex(z_array)
+    return evaluator(z_array)
