@@ -224,6 +224,7 @@ print(f"|pymtl  - mpmath| = {abs(reference[jmax] - mp_reference[jmax]):.6e}")
 ```
 
 ```python
+import numpy as np
 from mlf import mittag_leffler
 z = np.linspace(0.4, 2.0) + 3j * np.linspace(0.5, 1.5)
 ml = mittag_leffler(z, alpha=0.5, beta=2.5)
