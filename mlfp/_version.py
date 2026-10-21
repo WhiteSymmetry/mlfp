@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # _version.py
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 __license__ = "MIT"
 __description__ = "mlfp: Mittag-Leffler and Prabhakar function, MLF"
 __author__ = "Mehmet Keçeci"
