@@ -1,0 +1,71 @@
+# pyproject.toml
+
+[build-system]
+requires = ["setuptools>=84.0.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mlf"
+version = "0.1.0"
+
+# Diğer proje bilgileri (isteğe bağlı ama tavsiye edilir)
+authors = [
+    { name="Mehmet Keçeci", email="enfo@tuta.io" },
+]
+description = "mlf: Mittag-Leffler and Prabhakar function, MLF"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file="LICENSE" }
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Visualization",
+]
+
+# Ana bağımlılıklarınız
+dependencies = [
+    "scipy",
+    "matplotlib",
+    "numpy",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest",
+    "pytest-cov",
+    "pytest-mock",
+    "ruff",
+    "scipy",
+    "matplotlib",
+    "numpy",
+
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+
+[dependency-groups]
+dev = [{include-group = "test"}]
+test = ["pytest"]
+
+[tool.pytest.ini_options]
+log_level = "INFO"
+xfail_strict = true
+addopts = ["-ra", "--strict-config", "--strict-markers"]
+filterwarnings = ["error"]
+minversion = "6.0"
+testpaths = [
+    "tests",
+    "integration",
+]
+
+[tool.readthedocs]
+version = 2
+build.image = "stable"
+python.version = "3.14"
+configuration = "docs/conf.py"  # Build konfigürasyonu belirtin
+
+[project.urls]
+"Homepage" = "https://github.com/WhiteSymmetry/mlf"
+"Bug Tracker" = "https://github.com/WhiteSymmetry/mlf/issues"

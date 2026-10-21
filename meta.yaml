@@ -1,0 +1,58 @@
+# meta.yaml
+
+package:
+  name: mlf
+  version: "0.1.0"
+
+source:
+  url: 
+  blake2b-256: 
+  
+build:
+  noarch: python
+  script: {{ PYTHON }} -m pip install . --no-deps --ignore-installed
+  number: 0
+
+requirements:
+  host:
+    - python >=3.11
+    - pip
+    - setuptools
+    - numpy
+  run:
+    # Bu, paketin çalışması için GEREKLİ olan CONDA bağımlılıklarıdır: networkit 3.14 conda kurulumunda sorun çıkartıyor
+    - python >=3.11
+    - numpy
+    - matplotlib
+    - matplotlib-base
+    - scipy
+  build:
+    - python >=3.11
+    - pip
+    - setuptools
+    - numpy
+    - matplotlib
+    - scipy
+
+test:
+  requires:
+    - matplotlib
+    - scipy
+    - numpy
+  imports:
+    - numpy
+    - networkx
+    - matplotlib
+    - matplotlib-base
+    - scipy
+
+# DİKKAT: 'test:' bölümü bilinçli olarak kaldırılmıştır.
+
+about:
+  home: https://github.com/WhiteSymmetry/mlf
+  license: MIT
+  license_file: LICENSE
+  summary: mlf: Mittag-Leffler and Prabhakar function, MLF
+  description: |
+    mlf: Mittag-Leffler and Prabhakar function, MLF
+  doc_url: https://github.com/WhiteSymmetry/mlf

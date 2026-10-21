@@ -1,0 +1,33 @@
+# This CITATION.cff file was generated with cffinit.
+# Visit https://bit.ly/cffinit to generate yours today!
+
+cff-version: 1.2.0
+title: Kececi Layout
+message: >-
+  If you use this software, please cite it using the
+  metadata from this file. / Eğer bu yazılımı
+  kullanıyorsanız, lütfen bu dosyadaki meta   verileri
+  kullanarak atıfta bulunun.
+type: software
+authors:
+  - given-names: Mehmet
+    family-names: Keçeci
+    email: enfo@tuta.io
+    orcid: 'https://orcid.org/0000-0001-9937-9839'
+identifiers:
+  - type: doi
+    value: 
+repository-code: 'https://github.com/WhiteSymmetry/mlf'
+url: 'https://github.com/WhiteSymmetry/mlf'
+repository: 'https://anaconda.org/bilgi/mlf'
+repository-artifact: 'https://pypi.org/project/mlf/'
+abstract: >-
+  mlf: Mittag-Leffler and Prabhakar function, MLF
+keywords:
+  - Kececi Layout
+  - mlf
+  - Layout
+license: MIT
+commit: 'Revision: 2'
+version: 0.1.0
+date-released: '2025-04-30'

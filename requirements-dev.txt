@@ -1,0 +1,7 @@
+# requirements-dev.txt
+numpy
+matplotlib
+scipy
+pytest
+flake8
+pytest-cov

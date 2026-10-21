@@ -1,0 +1,47 @@
+[workspace]
+preview = ["pixi-build"]
+authors = ["Mehmet Keçeci <enfo@tuta.io>"]
+channels = ["https://prefix.dev/bilgi", "bilgi", "pypi", "https://prefix.dev/conda-forge", "https://conda.modular.com/max-nightly", "conda-forge", "https://repo.prefix.dev/modular-community"]
+platforms = ["linux-64", "osx-arm64", "osx-64"]
+name = "mlf"
+version = "0.1.0"
+
+[package]
+name = "mlf"
+version = "0.1.0"
+license = "MIT"
+
+[dependencies]
+python = ">=3.11"
+pip = ">=25.3"
+conda-build = ">=26.3.0"
+wheel = ">=0.47.0"
+rattler-build = ">=0.77.0,<0.78"
+numpy = ">=2.4.6"
+scipy = ">=1.18.0"
+matplotlib = ">=3.11.0"
+pytest = ">=8.0"
+ruff = ">=0.9.0"
+
+[tasks]
+build = "python -m build"
+start = "python -c 'import mlf; print(mlf.__version__)'"
+lint = "ruff check ."
+fmt = "ruff format ."
+fix = "ruff check --fix . || true"
+serve = { cmd = "python -m http.server", cwd = "docs" }
+install-mlf = "pip install git+https://github.com/WhiteSymmetry/mlf"
+install = "pip install -e ."
+test = { depends-on = ["install"], cmd = "pytest" }
+install-deps = "pip install mlf"
+
+[package.build.backend]
+name = "pixi-build-python"
+version = "*"
+
+[package.host-dependencies]
+hatchling = "*"
+python = ">=3.11"
+setuptools = ">=84.0.0"
+cython = ">=3.0"
+pip = "*"

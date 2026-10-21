@@ -1,0 +1,13 @@
+{
+  "title": "mlf",
+  "upload_type": "software",
+  "description": "mlf: Mittag-Leffler and Prabhakar function, MLF",
+  "creators": [
+    {
+      "name": "Keçeci, Mehmet",
+      "orcid": "0000-0001-9937-9839"
+    }
+  ],
+  "license": "mit-license",
+  "access_right": "open"
+}
