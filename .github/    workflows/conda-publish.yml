@@ -61,11 +61,11 @@ jobs:
           echo "--- Installing graphillion in test-env via pip ---"
           conda run -n test-env pip install "graphillion>=1.0"
       
-          echo "--- Attempting to import graph_tool, graphillion, mlf ---"
+          echo "--- Attempting to import graph_tool, graphillion, mlfp ---"
           conda run -n test-env python -c "
           import graph_tool
           import graphillion
-          import mlf
+          import mlfp
           print('All imports successful for Python ${{ matrix.python-version }}!')
           "
       
@@ -73,7 +73,7 @@ jobs:
         run: |
           PACKAGE_FILE=$(ls dist/*.conda | head -n 1)
           conda install -n test-env -y "$PACKAGE_FILE"
-          conda run -n test-env python -c "import mlf; print('Import successful for Python ${{ matrix.python-version }}!')"
+          conda run -n test-env python -c "import mlfp; print('Import successful for Python ${{ matrix.python-version }}!')"
 
       - name: Build the package
         run: |

@@ -55,7 +55,7 @@ jobs:
         env:
           PYTHONUTF8: 1
         run: |
-          pytest --cov=mlf --cov-report=xml
+          pytest --cov=mlfp --cov-report=xml
           
       - name: Prepare Ubuntu 3.11
         #if: ${{ matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11' }}

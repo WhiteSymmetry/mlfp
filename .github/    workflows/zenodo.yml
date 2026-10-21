@@ -25,9 +25,9 @@ jobs:
           dir: .
           metadata: |
             {
-              "title": "mlf",
+              "title": "mlfp",
               "upload_type": "software",
-              "description": "mlf: Mittag-Leffler and Prabhakar function, MLF",
+              "description": "mlfp: Mittag-Leffler and Prabhakar function, MLF",
               "creators": [
                 {"name": "Keçeci, Mehmet", "orcid": "0000-0001-9937-9839"}
               ],

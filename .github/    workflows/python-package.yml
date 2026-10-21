@@ -61,7 +61,7 @@ jobs:
         PYTHONUTF8: 1
         MPLBACKEND: "agg"
       run: |
-        python -m pytest --cov=mlf --cov-report=xml -v tests/
+        python -m pytest --cov=mlfp --cov-report=xml -v tests/
 
     - name: Upload coverage to Codecov
       if: ${{ matrix.os == 'ubuntu-latest' && matrix.python-version == '3.14' }}

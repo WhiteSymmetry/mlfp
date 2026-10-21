@@ -33,14 +33,14 @@ jobs:
           echo "--- Installing graphillion in test-env via pip ---"
           conda run -n test-env pip install "graphillion>=1.0"
           
-          echo "--- Attempting to import mlf ---"
-          conda run -n test-env python -c "import mlf"
+          echo "--- Attempting to import mlfp ---"
+          conda run -n test-env python -c "import mlfp"
           
       - name: Install and Test
         run: |
           pip install -e .
           python -c "
-          import mlf as kl
+          import mlfp as kl
           import networkx as nx
           
           # Basit test
