@@ -234,54 +234,135 @@ print(ml)
 
 ---
 
-# `mlfp` — Mittag-Leffler ve Prabhakar Fonksiyonları için Python Modülü
+# mlfp — Mittag-Leffler ve Prabhakar Fonksiyonları için Python Modülü
 
 > **PyPI:** [https://pypi.org/project/mlfp/](https://pypi.org/project/mlfp/)
-> **Lisans:** MIT
-> **Python:** 3.12+ / 3.15
-> **Bağımlılıklar:** `numpy`, `scipy`
+> **Lisans:** MIT · **Python:** 3.11+ / 3.15 · **Bağımlılıklar:** `numpy`, `scipy`
 
-`mlfp` (Mittag-Leffler Functions for Python), iki parametreli **Mittag-Leffler** fonksiyonu \(E_{\alpha,\beta}(z)\) ile üç parametreli **Prabhakar** fonksiyonunu \(E_{\alpha,\beta}^{\gamma}(z)\) float64 duyarlığında güvenli ve doğru biçimde hesaplayan açık kaynaklı bir kütüphanedir.
+`mlfp` (*Mittag-Leffler Functions for Python*), iki parametreli **Mittag-Leffler** fonksiyonu $E_{\alpha,\beta}(z)$ ile üç parametreli **Prabhakar** fonksiyonu $E_{\alpha,\beta}^{\gamma}(z)$'yi float64 duyarlığında güvenli ve doğru biçimde hesaplayan açık kaynaklı bir kütüphanedir.
 
 ---
 
-## 📐 Matematiksel Özellikler
+## İçindekiler
+
+1. [Kurulum](#kurulum)
+2. [Hızlı Başlangıç](#hızlı-başlangıç)
+3. [Matematiksel Özellikler](#matematiksel-özellikler)
+4. [Sayısal Güvenlik Özellikleri](#sayısal-güvenlik-özellikleri)
+5. [API Özellikleri](#api-özellikleri)
+6. [Yazılım Mühendisliği Özellikleri](#yazılım-mühendisliği-özellikleri)
+7. [Doğrulama](#doğrulama)
+8. [Mevcut Kütüphanelerle Karşılaştırma](#mevcut-kütüphanelerle-karşılaştırma)
+9. [Sınırlamalar](#sınırlamalar)
+10. [Kaynaklar](#kaynaklar)
+
+---
+
+## Kurulum
+
+```bash
+pip install mlfp
+```
+
+Geliştirme sürümü için:
+
+```bash
+pip install "mlfp[dev]"
+```
+
+---
+
+## Hızlı Başlangıç
+
+```python
+from mlfp import MittagLeffler, mittag_leffler
+import numpy as np
+
+# ─── Temel kullanım ───
+ml = MittagLeffler(alpha=0.5, beta=1.0)
+print(ml(1.0))                  # E_{0.5, 1}(1.0) → 5.008980080762283
+
+# ─── Prabhakar fonksiyonu (γ ≠ 1) ───
+prabhakar = MittagLeffler(alpha=0.5, beta=1.0, gamma=0.7)
+print(prabhakar(0.5))           # E_{0.5, 1}^{0.7}(0.5) → 1.6154153961...
+
+# ─── Vektörleştirilmiş hesap ───
+z = np.array([0.1, 0.5, 1.0], dtype=complex)
+print(ml.evaluate_complex(z))   # NDArray[np.complex128]
+
+# ─── Fonksiyon tabanlı API ───
+value = mittag_leffler(1.0, alpha=0.5, beta=1.0)
+print(value) 
+```
+
+---
+
+## Matematiksel Özellikler
 
 ### Desteklenen Fonksiyonlar
 
-| Fonksiyon | Matematiksel Tanım | Yöntem |
-|-----------|-------------------|--------|
-| **İki parametreli Mittag-Leffler** | \(E_{\alpha,\beta}(z) = \displaystyle\sum_{k=0}^{\infty} \frac{z^k}{\Gamma(\alpha k+\beta)}\) | Hibrit OPC + Taylor serisi |
-| **Üç parametreli Prabhakar** | \(E_{\alpha,\beta}^{\gamma}(z) = \displaystyle\frac{1}{\Gamma(\gamma)}\sum_{k=0}^{\infty} \frac{(\gamma)_k\,z^k}{k!\,\Gamma(\alpha k+\beta)}\) | Taylor serisi |
+**İki parametreli Mittag-Leffler:**
+
+$$
+E_{\alpha,\beta}(z) = \sum_{k=0}^{\infty} \frac{z^{k}}{\Gamma(\alpha k + \beta)},
+\qquad \alpha > 0,\ \beta \in \mathbb{R}
+$$
+
+**Üç parametreli Prabhakar:**
+
+$$
+E_{\alpha,\beta}^{\gamma}(z) = \frac{1}{\Gamma(\gamma)}
+  \sum_{k=0}^{\infty}
+  \frac{(\gamma)_{k}\, z^{k}}{k!\,\Gamma(\alpha k + \beta)},
+\qquad \alpha > 0,\ \gamma > 0
+$$
+
+burada $(\gamma)_{k} = \Gamma(\gamma + k) / \Gamma(\gamma)$ Pochhammer sembolüdür.
+
+| Fonksiyon | Hesaplama Yöntemi |
+|-----------|-------------------|
+| İki parametreli Mittag-Leffler | Hibrit OPC + Taylor serisi |
+| Üç parametreli Prabhakar | Taylor serisi |
 
 ### Sayısal Yöntemler
 
-- ✅ **Garrappa'nın Optimal Parabolik Kontur (OPC)** yöntemi — ters Laplace dönüşümü üzerinden yüksek hassasiyetli hesap
-- ✅ **Hibrit geçiş** — `|z| ≤ series_threshold` için Taylor serisi, aksi halde OPC
-- ✅ **Prabhakar için doğru ayrım** — \(\gamma \neq 1\) durumunda seri kullanımı (OPC tekillik yapısı nedeniyle geçersiz)
-- ✅ **Karmaşık düzlemde tam destek** — hem gerçek hem sanal argümanlar
+- **Garrappa'nın Optimal Parabolik Kontur (OPC)** yöntemi — ters Laplace dönüşümü üzerinden yüksek hassasiyetli hesap.
+- **Hibrit geçiş** — $\lvert z \rvert \le \tau$ (varsayılan $\tau = 0.1$) için Taylor serisi, aksi halde OPC.
+- **Prabhakar için doğru ayrım** — $\gamma \neq 1$ durumunda OPC geçersizdir (dallanma noktaları), bu nedenle seri kullanılır.
+- **Karmaşık düzlemde tam destek** — hem gerçek hem sanal argümanlar.
 
 ### Özel Durumlar
 
 Aşağıdaki kapalı formlar otomatik olarak doğru hesaplanır:
 
-- \(E_{1,1}(z) = e^{z}\)
-- \(E_{2,1}(z) = \cosh(\sqrt{z})\)
-- \(E_{1/2,1}(z) = e^{z^2}\,\mathrm{erfc}(-z)\)
-- \(E_{\alpha,\beta}(0) = 1/\Gamma(\beta)\)
-- \(E_{\alpha,\beta}^{\gamma}(0) = 1/\Gamma(\beta)\) (γ'dan bağımsız)
+$$
+\begin{aligned}
+E_{1,1}(z) &= e^{z} \\
+E_{2,1}(z) &= \cosh\!\left(\sqrt{z}\right) \\
+E_{1/2,1}(z) &= e^{z^{2}}\,\mathrm{erfc}(-z) \\
+E_{\alpha,\beta}(0) &= \frac{1}{\Gamma(\beta)} \\
+E_{\alpha,\beta}^{\gamma}(0) &= \frac{1}{\Gamma(\beta)} \quad (\gamma\text{'dan bağımsız})
+\end{aligned}
+$$
 
 ---
 
-## 🛡️ Sayısal Güvenlik Özellikleri
+## Sayısal Güvenlik Özellikleri
 
 ### Float64 Taşma Koruması
 
-- ✅ **Dinamik güvenli \(|z|\) sınırı** — `_safe_z_limit(α)` fonksiyonu \(\alpha\)'ya bağlı olarak \(|z|_{\max} \approx 0.9\cdot(\log(\text{float64}_{\max}))^{\alpha}\) hesaplar
-- ✅ **Rezidü log-büyüklük denetimi** — `exp(t·Re(s))` çağrısından **önce** taşma riski kontrol edilir
-- ✅ **Açıklayıcı hata** — taşma durumunda sessiz `nan` yerine `MittagLefflerError` fırlatılır:
+- **Dinamik güvenli $\lvert z \rvert$ sınırı** — `_safe_z_limit(α)` fonksiyonu $\alpha$'ya bağlı olarak
 
-```
+$$
+\lvert z \rvert_{\max} \approx 0.9 \cdot \bigl(\log(\text{float64}_{\max})\bigr)^{\alpha}
+$$
+
+  değerini hesaplar.
+
+- **Rezidü log-büyüklük denetimi** — $\exp(t\,\Re(s))$ çağrısından **önce** taşma riski kontrol edilir.
+- **Açıklayıcı hata** — taşma durumunda sessiz `nan` yerine `MittagLefflerError` fırlatılır:
+
+```text
 The Mittag-Leffler value is too large to represent in float64:
 max log|residue| ≈ 1523.4 exceeds log(float64_max) ≈ 709.8.
 |z| = 12.3 exceeds the safe range for α = 0.25 (safe limit ≈ 4.65).
@@ -290,9 +371,9 @@ Reduce |z|, or use mpmath for higher-precision arithmetic.
 
 ### Katastrofik İptal Tespiti
 
-- ✅ Küçük \(\alpha\) ve büyük \(|z|\) kombinasyonlarında tek terimler `~exp(|z|^(1/α))` mertebesine ulaşırken sonuç \(O(1)\) kalır
-- ✅ Modül bu durumlarda **test referansı için adaptif `mpmath.dps`** önerir
-- ✅ Kullanıcıya güvenli aralık hakkında bilgi verir
+- Küçük $\alpha$ ve büyük $\lvert z \rvert$ kombinasyonlarında tek terimler $\sim e^{\lvert z \rvert^{1/\alpha}}$ mertebesine ulaşırken sonuç $\mathcal{O}(1)$ kalır.
+- Modül bu durumlarda test referansı için **adaptif `mpmath.dps`** önerir.
+- Kullanıcıya güvenli aralık hakkında bilgi verir.
 
 ### Parametre Doğrulaması
 
@@ -300,69 +381,71 @@ Reduce |z|, or use mpmath for higher-precision arithmetic.
 
 | Parametre | Kural |
 |-----------|-------|
-| `alpha` | \(\alpha > 0\), sonlu |
+| `alpha` | $\alpha > 0$, sonlu |
 | `beta` | Sonlu reel |
-| `gamma` | \(\gamma > 0\), sonlu |
-| `tolerance` | \(0 < \varepsilon < 1\) |
-| `series_threshold` | \(\geq 0\) |
+| `gamma` | $\gamma > 0$, sonlu |
+| `tolerance` | $0 < \varepsilon < 1$ |
+| `series_threshold` | $\ge 0$ |
 | `max_series_terms` | Pozitif tam sayı |
 
 ---
 
-## 🔌 API Özellikleri
+## API Özellikleri
 
-### İki Katmanlı Arayüz
+### İçe Aktarma
 
 ```python
 from mlfp import MittagLeffler, mittag_leffler, MittagLefflerError
 ```
 
-#### 1. Sınıf Tabanlı API (Tekrar Kullanılabilir)
+### Sınıf Tabanlı API (Tekrar Kullanılabilir)
 
 ```python
-# Parametreleri bir kez ayarla, farklı z için tekrar kullan
 ml = MittagLeffler(alpha=0.5, beta=1.0, tolerance=1e-14)
 print(ml(1.0))                    # gerçek argüman → float
 print(ml.evaluate_complex(1.0j))  # karmaşık argüman → complex
 ```
 
-#### 2. Fonksiyon Tabanlı API (Hızlı Kullanım)
+### Fonksiyon Tabanlı API (Tek Seferlik)
 
 ```python
-# Tek satırda değerlendirme
 value = mittag_leffler(1.0, alpha=0.5, beta=1.0)
+print(value)
 ```
 
 ### Çift Çıktı Modu
 
 | Metot | Girdi | Çıktı | Kullanım |
 |-------|-------|-------|----------|
-| `__call__` / `evaluate` | Gerçek \(z\) | `float64` | Gerçek hesaplamalar |
-| `evaluate_complex` | Karmaşık \(z\) | `complex128` | Tam karmaşık sonuç |
+| `__call__` / `evaluate` | Gerçek $z$ | `float64` | Gerçek hesaplamalar |
+| `evaluate_complex` | Karmaşık $z$ | `complex128` | Tam karmaşık sonuç |
 
-Karmaşık \(z\) gerçek API'ye verilirse **açıklayıcı hata** fırlatılır:
+Karmaşık $z$ gerçek API'ye verilirse **açıklayıcı hata** fırlatılır:
 
-```
+```text
 For complex z, use evaluate_complex() to obtain the full complex-valued result.
 ```
 
 ### Vektörleştirme
 
-- ✅ **NumPy dizileri** doğrudan desteklenir
-- ✅ **Skaler/dizi tutarlılığı** garanti edilir
-- ✅ **Boş girdiler** güvenle işlenir
+- NumPy dizileri doğrudan desteklenir.
+- Skaler/dizi tutarlılığı garanti edilir.
+- Boş girdiler güvenle işlenir.
 
 ```python
+import numpy as np
 z = np.array([0.1, 0.5, 1.0, 2.0], dtype=complex)
 result = ml.evaluate_complex(z)   # NDArray[np.complex128]
+print(z)
+print(result)
 ```
 
 ### Tip İpuçları
 
-- ✅ **Tam tip ipuçları** — `ArrayLike`, `NDArray[np.float64]`, `NDArray[np.complex128]`
-- ✅ **`from __future__ import annotations`** — ileri uyumluluk
-- ✅ **`ClassVar`** — `slots=True` dataclass'ta sabit doğru tanımlı
-- ✅ **IDE/mypy dostu** — otomatik tamamlama ve tip kontrolü
+- Tam tip ipuçları — `ArrayLike`, `NDArray[np.float64]`, `NDArray[np.complex128]`.
+- `from __future__ import annotations` — ileri uyumluluk.
+- `ClassVar` — `slots=True` dataclass'ta sabit doğru tanımlı.
+- IDE/mypy dostu.
 
 ### Hata Yönetimi
 
@@ -375,22 +458,22 @@ Tüm hatalar tek bir istisna sınıfından türetilir → `try/except` ile kolay
 
 ---
 
-## ⚙️ Yazılım Mühendisliği Özellikleri
+## Yazılım Mühendisliği Özellikleri
 
 ### Performans
 
-- ✅ **Vektörleştirilmiş hesaplama** — OPC integrandı NumPy ile bir kerede değerlendirilir
-- ✅ **Otomatik düğüm sayısı** — `nodes ≤ 200` hedefine göre dinamik ayar
-- ✅ **Hibrit geçiş** — küçük \(|z|\) için seri (OPC'den çok daha hızlı)
-- ✅ **Yeniden kullanılabilir sınıf** — parametre doğrulaması bir kez yapılır
+- Vektörleştirilmiş hesaplama — OPC integrandı NumPy ile bir kerede değerlendirilir.
+- Otomatik düğüm sayısı — $\text{nodes} \le 200$ hedefine göre dinamik ayar.
+- Hibrit geçiş — küçük $\lvert z \rvert$ için seri (OPC'den çok daha hızlı).
+- Yeniden kullanılabilir sınıf — parametre doğrulaması bir kez yapılır.
 
 ### Kod Kalitesi
 
-- ✅ **`slots=True` dataclass** — bellek verimliliği
-- ✅ **`Final` / `ClassVar`** — sabitlerin doğru tanımı
-- ✅ **Docstring'ler** — tüm public API belgelenmiş
-- ✅ **SPDX lisans başlığı** — MIT lisansı otomatik tanınır
-- ✅ **`__repr__`** — hata ayıklama için okunabilir gösterim
+- `slots=True` dataclass — bellek verimliliği.
+- `Final` / `ClassVar` — sabitlerin doğru tanımı.
+- Kapsamlı docstring'ler — tüm public API belgelenmiş.
+- SPDX lisans başlığı — MIT lisansı otomatik tanınır.
+- `__repr__` — hata ayıklama için okunabilir gösterim.
 
 ```python
 >>> MittagLeffler(alpha=0.5, beta=1.0, gamma=1.0)
@@ -400,24 +483,24 @@ MittagLeffler(alpha=0.5, beta=1.0, gamma=1.0, tolerance=1e-15,
 
 ### Python 3.15 Uyumluluğu
 
-- ✅ **`from __future__ import annotations`** — yeni tip sözdizimi
-- ✅ **PEP 604 (`X | Y`)** — modern birleşim tipleri
-- ✅ **`override` dekoratörü** — `typing.override` ile uyumlu
-- ✅ **NumPy 2.x** — yeni array API'si
+- `from __future__ import annotations` — yeni tip sözdizimi.
+- PEP 604 (`X | Y`) — modern birleşim tipleri.
+- `typing.override` — override dekoratörü.
+- NumPy 2.x — yeni array API'si.
 
 ---
 
-## 🧪 Doğrulama Özellikleri
+## Doğrulama
 
 ### Kapsamlı Test Altyapısı
 
 Modül, **37 pytest testi** ile doğrulanmıştır:
 
 | Test Grubu | Kapsam | Sayı |
-|-----------|--------|------|
-| Özel değerler | \(e^z\), \(\cosh\sqrt{z}\), \(\mathrm{erfc}\) | 5 |
-| Prabhakar | \(\gamma\) indirgemesi, Pochhammer | 6 |
-| Sınır koşulları | \(z=0\), negatif eksen, taşma | 5 |
+|------------|--------|------|
+| Özel değerler | $e^{z}$, $\cosh\sqrt{z}$, $\mathrm{erfc}$ | 5 |
+| Prabhakar | $\gamma$ indirgemesi, Pochhammer | 6 |
+| Sınır koşulları | $z=0$, negatif eksen, taşma | 5 |
 | Parametre doğrulama | Geçersiz girdiler | 10 |
 | Vektörleştirme | Dizi–skaler tutarlılığı | 3 |
 | Seri–OPC | İç tutarlılık | 4 |
@@ -426,90 +509,89 @@ Modül, **37 pytest testi** ile doğrulanmıştır:
 
 ### Adaptif mpmath Referansı
 
-- ✅ **Dinamik hassasiyet** — `dps ≥ |z|^(1/α)/ln(10) + 40`
-- ✅ **Katastrofik iptal engellenir** — küçük \(\alpha\) + büyük \(|z|\) için doğru referans
-- ✅ **Kapsamlı karşılaştırma** — 20 \((\alpha,\beta)\) çifti × 6 açı
+Referans değerler, gereken ondalık basamak sayısı
+
+$$
+\text{dps} \ge \frac{\lvert z \rvert^{1/\alpha}}{\ln 10} + 40
+$$
+
+ile dinamik olarak belirlenerek `mpmath` ile hesaplanır. Bu, küçük $\alpha$ ve büyük $\lvert z \rvert$ durumlarında oluşan **katastrofik iptali** engeller.
 
 ### Doğrulanmış Sayısal Sonuçlar
 
-- ✅ Tüm kombinasyonlarda **göreli hata \(< 10^{-13}\)**
-- ✅ Örnek: \(\alpha=1.0\), \(\beta=1.5\), \(\theta=0\) için \(\max\text{rel} = 1.49\times10^{-15}\)
-- ✅ Örnek: \(\alpha=0.25\), \(\beta=0.5\), \(\theta=0\) için \(\max\text{rel} = 7.23\times10^{-14}\)
+- Tüm geçerli kombinasyonlarda **göreli hata** $< 10^{-13}$.
+- Örnek: $\alpha=1.0$, $\beta=1.5$, $\theta=0$ için $\max_{\text{rel}} = 1.49 \times 10^{-15}$.
+- Örnek: $\alpha=0.25$, $\beta=0.5$, $\theta=0$ için $\max_{\text{rel}} = 7.23 \times 10^{-14}$.
 
-### Grafiksel Doğrulama
+### Doğrulama Araçları
 
-- ✅ **`plot_comparison.py`** — değer, mutlak hata, göreli hata panelleri
-- ✅ **4 parametre çifti** × 3 açı paneli
-- ✅ **`run_comparison.py`** — kapsamlı konsol özeti
-- ✅ **`test_special_cases.py`** — pytest testleri
-- ✅ **`_ml_helpers.py`** — adaptif referans + hata istatistikleri
+| Dosya | İşlev |
+|-------|-------|
+| `test_special_cases.py` | 37 pytest testi |
+| `run_comparison.py` | Kapsamlı konsol karşılaştırması |
+| `plot_comparison.py` | Değer, mutlak hata, göreli hata panelleri |
+| `_ml_helpers.py` | Adaptif referans + hata istatistikleri |
 
 ---
 
-## 📊 Mevcut Kütüphanelerle Karşılaştırma
+## Mevcut Kütüphanelerle Karşılaştırma
 
 | Özellik | `mlfp` | `pymittagleffler` | `khinsen/ml` | `numfracpy` |
 |---------|:------:|:-----------------:|:------------:|:-----------:|
 | İki parametreli ML | ✅ | ✅ | ✅ | ✅ |
-| **Prabhakar (\(\gamma \neq 1\))** | ✅ | ❌ | ❌ | Kısmi |
-| **Float64 taşma güvenliği** | ✅ | ❌ | ❌ | ❌ |
-| **Açıklayıcı hata mesajları** | ✅ | ❌ | ❌ | ❌ |
-| **Adaptif test referansı** | ✅ | ❌ | ❌ | ❌ |
+| Prabhakar ($\gamma \neq 1$) | ✅ | ❌ | ❌ | Kısmi |
+| Float64 taşma güvenliği | ✅ | ❌ | ❌ | ❌ |
+| Açıklayıcı hata mesajları | ✅ | ❌ | ❌ | ❌ |
+| Adaptif test referansı | ✅ | ❌ | ❌ | ❌ |
 | Çift API (gerçek/karmaşık) | ✅ | ❌ | ✅ | ✅ |
 | Vektörleştirme | ✅ | ✅ | ❌ | ✅ |
 | NumPy uyumlu tipler | ✅ | ✅ | ❌ | Kısmi |
-| **Modern Python 3.15** | ✅ | ✅ | ❌ | ❌ |
+| Modern Python 3.15 | ✅ | ✅ | ❌ | ❌ |
 
 ---
 
-## ⚠️ Sınırlamalar
+## Sınırlamalar
 
 | Sınırlama | Açıklama | Gelecek Çalışma |
 |-----------|----------|-----------------|
-| \(\alpha = 0\) | Matematiksel olarak \(E_{0,\beta}(z)=1/(\Gamma(\beta)(1-z))\) iyi tanımlı; mevcut OPC uygulaması \(\alpha>0\) varsayar | Özel bir `alpha == 0` dalı eklenebilir |
-| Prabhakar büyük \(\|z\|\) | \(\gamma \neq 1\) ve büyük \(\|z\|\) için seri yakınsaması yavaşlayabilir | Asimptotik açılım entegrasyonu |
-| Matris argüman | Yalnızca skaler/karmaşık \(z\) desteklenir | Matris değerli ML fonksiyonu eklenebilir |
+| $\alpha = 0$ | Matematiksel olarak $E_{0,\beta}(z) = 1/(\Gamma(\beta)(1-z))$ iyi tanımlı; mevcut OPC uygulaması $\alpha > 0$ varsayar | Özel bir `alpha == 0` dalı eklenebilir |
+| Prabhakar büyük $\lvert z \rvert$ | $\gamma \neq 1$ ve büyük $\lvert z \rvert$ için seri yakınsaması yavaşlayabilir | Asimptotik açılım entegrasyonu |
+| Matris argüman | Yalnızca skaler/karmaşık $z$ desteklenir | Matris değerli ML fonksiyonu eklenebilir |
 | Yüksek duyarlık | float64 ile sınırlı | İsteğe bağlı `mpmath` arka ucu |
 
 ---
 
-## 🚀 Hızlı Başlangıç
-
-```python
-# 1. Kurulum
-pip install mlfp
-
-# 2. Temel kullanım
-from mlfp import MittagLeffler
-
-# E_{0.5, 1}(1.0)
-ml = MittagLeffler(alpha=0.5, beta=1.0)
-print(ml(1.0))                       # 5.008980080762283
-
-# Prabhakar fonksiyonu
-prabhakar = MittagLeffler(alpha=0.5, beta=1.0, gamma=0.7)
-print(prabhakar(0.5))                # 1.6154153961...
-
-# Vektörleştirilmiş hesap
-import numpy as np
-z = np.array([0.1, 0.5, 1.0], dtype=complex)
-print(ml.evaluate_complex(z))        # NDArray[np.complex128]
-```
-
----
-
-## 📚 Kaynaklar
+## Kaynaklar
 
 - **PyPI:** [https://pypi.org/project/mlfp/](https://pypi.org/project/mlfp/)
 - **Lisans:** MIT
 - **Ana referanslar:**
-  - Garrappa, R. (2015). *Numerical evaluation of two and three parameter Mittag-Leffler functions.* SIAM J. Numer. Anal., 53(3), 1350–1369.
-  - Gorenflo, R., Kilbas, A. A., Mainardi, F., & Rogosin, S. V. (2020). *Mittag-Leffler Functions, Related Topics and Applications.* Springer.
-  - Prabhakar, T. R. (1971). *A singular integral equation with a generalized Mittag-Leffler function in the kernel.* Yokohama Math. J., 19, 7–15.
+  - Garrappa, R. (2015). *Numerical evaluation of two and three parameter Mittag-Leffler functions.* SIAM Journal on Numerical Analysis, 53(3), 1350–1369. [doi:10.1137/140971191](https://doi.org/10.1137/140971191)
+  - Gorenflo, R., Kilbas, A. A., Mainardi, F., & Rogosin, S. V. (2020). *Mittag-Leffler Functions, Related Topics and Applications.* Springer. [doi:10.1007/978-3-662-61550-8](https://doi.org/10.1007/978-3-662-61550-8)
+  - Prabhakar, T. R. (1971). *A singular integral equation with a generalized Mittag-Leffler function in the kernel.* Yokohama Mathematical Journal, 19, 7–15.
+  - Mainardi, F., & Garrappa, R. (2017). *On complete monotonicity and asymptotic behaviour of the Prabhakar function.* Fractional Calculus and Applied Analysis, 20(6), 1369–1386. [doi:10.1515/fca-2017-0073](https://doi.org/10.1515/fca-2017-0073)
 
 ---
 
-**Özetle:** `mlfp`, Mittag-Leffler ve Prabhakar fonksiyonlarını **float64 güvenliği**, **açıklayıcı hata mesajları**, **hibrit seri/OPC geçişi**, **Prabhakar desteği** ve **kapsamlı doğrulama** ile bir araya getiren modern bir Python kütüphanesidir. Kesirli analiz, anormal difüzyon, dielektrik modeller ve kesirli kontrol sistemleri gibi alanlarda güvenle kullanılabilir.
+## Lisans
 
+MIT Lisansı altında dağıtılmaktadır. Ayrıntılar için `LICENSE` dosyasına bakın.
 
+---
 
+## Atıf
+
+Bu kütüphaneyi akademik bir çalışmada kullanıyorsanız, aşağıdaki biçimde atıf yapabilirsiniz:
+
+```bibtex
+@software{mlfp2026,
+  title  = {mlfp: Mittag-Leffler and Prabhakar Functions for Python},
+  author = {Keçeci, Mehmet},
+  year   = {2026},
+  url    = {https://pypi.org/project/mlfp/},
+  note   = {MIT License}
+}
+```
+```
+
+---
