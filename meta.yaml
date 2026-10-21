@@ -62,7 +62,7 @@ about:
   home: https://github.com/WhiteSymmetry/mlfp
   license: MIT
   license_file: LICENSE
-  summary: mlfp; Mittag-Leffler and Prabhakar function, MLF
+  summary: "mlfp; Mittag-Leffler and Prabhakar function, MLF"
   description: |
     mlfp; Mittag-Leffler and Prabhakar function, MLF
   doc_url: https://github.com/WhiteSymmetry/mlfp
