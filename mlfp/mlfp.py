@@ -32,7 +32,11 @@ from typing import ClassVar, Final
 
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
-from scipy.special import gamma as gamma_func
+from scipy.special import gamma as gamma_func, erfcx
+
+
+import mpmath as _mp
+_mp.mp.dps = 50                    # güvenli varsayılan hassasiyet
 
 
 class MittagLefflerError(ValueError):
@@ -43,6 +47,112 @@ class MittagLefflerError(ValueError):
 # ---------------------------------------------------------------------------
 _LOG_MAX_FLOAT64: Final[float] = math.log(np.finfo(np.float64).max)  # ≈ 709.78
 
+def _asymptotic_expansion(
+    z: complex,
+    alpha: float,
+    beta: float,
+    *,
+    n_terms: int = 40,
+    rel_tol: float = 1e-14,
+) -> complex | None:
+    """
+    E_{α,β}(z)'nin |z| → ∞ için kuvvet-serisi asimptotiği.
+
+    GEÇERLİ SADECE ŞU SECTOR'DA (α < 2 için):
+        |arg(z)| ∈ (απ/2, π)   VE   z negatif reel eksende değil
+
+    Bu sector dışında None döner → caller mpmath fallback yapar.
+    """
+    if alpha >= 2.0:
+        return None
+
+    theta = cmath.phase(z)
+    abs_theta = abs(theta)
+
+    # ← DOĞRU SECTOR: |θ| > απ/2, üst sınır YOK
+    #    θ = π (negatif reel eksen) dahil edilir.
+    lower = alpha * math.pi / 2.0 + 1e-3
+    if abs_theta < lower:
+        return None
+    # ÜST SINIR KALDIRILDI (önceden: abs_theta < π - 1e-3)
+
+    if abs(z) < 5.0:
+        return None
+
+    total = 0.0 + 0.0j
+    prev_mag = math.inf
+    for k in range(1, n_terms + 1):
+        denom = beta - alpha * k
+        if abs(denom - round(denom)) < 1e-12 and denom <= 0:
+            continue
+        try:
+            term = z ** (-k) / gamma_func(denom)
+        except (ValueError, ZeroDivisionError):
+            continue
+        if not np.isfinite(term):
+            break
+        total -= term
+        mag = abs(term)
+        if mag > prev_mag:
+            break
+        prev_mag = mag
+        if mag < rel_tol * (1.0 + abs(total)):
+            break
+    return complex(total)
+
+def _mpmath_fallback(
+    z, alpha, beta, gamma=1.0,
+    *,
+    max_dps: int = 2000,     # ← 800 → 2000
+) -> complex:
+    """
+    E_{α,β}^γ(z)'yi adaptif hassasiyetli mpmath ile hesapla.
+
+    float64'te taşma/iptal riski olduğunda çağrılır.
+    Gerekli hassasiyet: |z|^(1/α)/ln(10) + güvenlik payı.
+    """
+    abs_z = abs(z)
+
+    # Gerekli ondalık basamak sayısını hesapla
+    if abs_z < 1.0 or alpha >= 2.0:
+        dps = 60
+    else:
+        log_peak = abs_z ** (1.0 / alpha)          # nat cinsinden
+        dps = max(60, int(log_peak / math.log(10.0)) + 60)
+
+    if dps > max_dps:
+        raise MittagLefflerError(
+            f"Even mpmath would need {dps} digits (> {max_dps}) "
+            f"for α={alpha}, |z|={abs_z:.3g}. "
+            "The function value itself is beyond float64 range."
+        )
+
+    with _mp.workdps(dps):
+        z_mp     = _mp.mpc(z)
+        alpha_mp = _mp.mpf(alpha)
+        beta_mp  = _mp.mpf(beta)
+        gamma_mp = _mp.mpf(gamma)
+
+        tol = _mp.mpf(10) ** (-(dps - 15))
+        total = _mp.mpf(1) / _mp.gamma(beta_mp)
+        z_power = _mp.mpc(1)
+        pochhammer = _mp.mpf(1)
+
+        for k in range(1, 200_000):
+            z_power *= z_mp
+            pochhammer *= gamma_mp + k - 1
+            term = pochhammer * z_power / (
+                _mp.factorial(k) * _mp.gamma(alpha_mp * k + beta_mp)
+            )
+            total += term
+            if abs(term) < abs(total) * tol:
+                return complex(total)
+
+    raise MittagLefflerError(
+        f"mpmath fallback did not converge for α={alpha}, "
+        f"β={beta}, γ={gamma}, |z|={abs_z:.3g}, dps={dps}."
+    )
+
 
 def _safe_z_limit(alpha: float, safety: float = 0.9) -> float:
     """
@@ -51,6 +161,9 @@ def _safe_z_limit(alpha: float, safety: float = 0.9) -> float:
     The residue of the branch point s satisfies |Res| ≲ exp(t·Re(s))·|s|^(1-β),
     with Re(s) ≈ |z|^(1/α) along the positive real axis.  Requiring
     t·Re(s) < log(float64 max) yields |z| < log_max^α.
+
+    NOT: Bu sınır float64 rezidü hesabı içindir. |z| sınırı aşarsa,
+    _asymptotic_expansion devreye girer (arg(z) uygunsa).
     """
     if alpha <= 0.0:
         return 0.0
@@ -506,9 +619,9 @@ class MittagLeffler:
             "For complex z, use evaluate_complex() to obtain the full "
             "complex-valued result."
         )
-
+    """
     def _evaluate_scalar_complex(self, z: complex) -> complex:
-        """Return the full complex-valued Mittag-Leffler result."""
+        #Return the full complex-valued Mittag-Leffler result.
         if abs(z) < self._MACHINE_EPS:
             return complex(1.0 / gamma_func(self.beta))
 
@@ -524,6 +637,44 @@ class MittagLeffler:
             )
 
         return self._evaluate_series(z)
+    """
+
+    def _evaluate_scalar_complex(self, z: complex) -> complex:
+        """Return the full complex-valued Mittag-Leffler result."""
+        if abs(z) < self._MACHINE_EPS:
+            return complex(1.0 / gamma_func(self.beta))
+
+        if self.gamma == 1.0:
+            # Küçük |z| → seri
+            if abs(z) <= self.series_threshold:
+                return self._evaluate_series(z)
+
+            # Doğru sector'da büyük |z| → asimptotik
+            if abs(z) > 0.8 * _safe_z_limit(self.alpha):
+                asymp = _asymptotic_expansion(z, self.alpha, self.beta)
+                if asymp is not None:
+                    return asymp
+
+            # OPC'yi dene
+            try:
+                return _invert_laplace_transform_two_parameter(
+                    t=1.0, z=z,
+                    alpha=self.alpha, beta=self.beta,
+                    tolerance=self.tolerance,
+                )
+            except MittagLefflerError as exc:
+                if "too large" in str(exc):
+                    # Son çare: mpmath
+                    return _mpmath_fallback(
+                        z, self.alpha, self.beta, self.gamma,
+                    )
+                raise
+
+        # γ ≠ 1 → her durumda seri (küçük |z|) veya mpmath (büyük |z|)
+        if abs(z) <= self.series_threshold:
+            return self._evaluate_series(z)
+        # Büyük |z| + γ ≠ 1 → mpmath
+        return _mpmath_fallback(z, self.alpha, self.beta, self.gamma)
 
     def _evaluate_series(self, z: complex) -> complex:
         r"""
