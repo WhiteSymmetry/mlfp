@@ -3,6 +3,10 @@ mlf: Mittag-Leffler and Prabhakar function, MLF, Mittag-Leffler and Prabhakar fu
 
 ---
 
+# mlf <img src="https://github.com/WhiteSymmetry/mlf/blob/main/docs/logo.png" alt="mlf" align="right" height="140"/>
+
+---
+
 Parameter validation tests
 
 =======================================================
