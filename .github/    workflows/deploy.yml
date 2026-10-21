@@ -1,0 +1,50 @@
+name: Deploy MyST site
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+
+    env:
+      BASE_URL: /${{ github.event.repository.name }}
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Install MyST
+        run: npm install --global mystmd
+
+      - name: Build site
+        run: myst build --html
+
+      - name: Upload site
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: ./_build/html
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5
