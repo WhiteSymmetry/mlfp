@@ -1,9 +1,9 @@
-# mlf
-mlf: Mittag-Leffler and Prabhakar function, MLF, Mittag-Leffler and Prabhakar function evaluation: Mittag-Leffler ve Prabhakar fonksiyonlarının hesaplanması.
+# mlfp
+mlfp: Mittag-Leffler and Prabhakar function, MLF, Mittag-Leffler and Prabhakar function evaluation: Mittag-Leffler ve Prabhakar fonksiyonlarının hesaplanması.
 
 ---
 
-# mlf <img src="https://github.com/WhiteSymmetry/mlf/blob/main/docs/logo.png" alt="mlf" align="right" height="140"/>
+# mlfp <img src="https://github.com/WhiteSymmetry/mlfp/blob/main/docs/logo.png" alt="mlfp" align="right" height="140"/>
 
 ---
 
@@ -48,9 +48,9 @@ Safe-limit overflow detection
 
 ============================================================================
 
-Numerical comparison:  mlf  vs  mpmath (ground truth)  vs  pymittagleffler
+Numerical comparison:  mlfp  vs  mpmath (ground truth)  vs  pymittagleffler
 
-  mlf tolerance      : 1.0e-13
+  mlfp tolerance      : 1.0e-13
   
   mpmath digits        : dynamic (>=50, up to 600)
   
@@ -112,7 +112,7 @@ Sample values (angle = π/2, mpmath reference uses adaptive precision)
 
 =====================================================================
 
-  alpha   beta          r         mlf Re           ref Re         mlf Im           ref Im
+  alpha   beta          r         mlfp Re           ref Re         mlfp Im           ref Im
   
 ---------------------------------------------------------------------------------------------
 
@@ -129,7 +129,7 @@ Overall: PASS ✅
 
 ```python
 import numpy as np
-from mlf import mittag_leffler
+from mlfp import mittag_leffler
 
 alpha, beta = 1.0, 2.0
 z = np.linspace(0.0, 2.0, 64)
@@ -140,7 +140,7 @@ print(result)
 
 ```python
 import numpy as np
-from mlf import MittagLeffler, mittag_leffler
+from mlfp import MittagLeffler, mittag_leffler
 
 # 1. Two-parameter Mittag-Leffler function
 ml = MittagLeffler(alpha=0.5, beta=1.0)
@@ -177,7 +177,7 @@ print(mittag_leffler(0.5, alpha=0.5, beta=1.0, gamma=0.7))
 import numpy as np
 import mpmath as mp
 from pymittagleffler import mittag_leffler as pymittag_leffler
-from mlf import MittagLeffler
+from mlfp import MittagLeffler
 
 mp.mp.dps = 40
 
@@ -195,7 +195,7 @@ alpha, beta = 1.0, 1.5
 r = np.linspace(0.0, 12.0, 256)
 z = r * np.exp(1j * np.pi / 2)
 
-mlf = MittagLeffler(
+mlfp = MittagLeffler(
     alpha=alpha,
     beta=beta,
     gamma=1.0,
@@ -209,23 +209,23 @@ mp_reference = np.array(
     dtype=np.complex128,
 )
 
-difference = np.abs(mlf - reference)
+difference = np.abs(mlfp - reference)
 jmax = int(np.argmax(difference))
 
 print(f"Maximum difference at r = {r[jmax]:.6f}")
 print(f"z                 = {z[jmax]}")
-print(f"mlf             = {mlf[jmax]}")
+print(f"mlfp             = {mlfp[jmax]}")
 print(f"pymittagleffler   = {reference[jmax]}")
 print(f"mpmath reference  = {mp_reference[jmax]}")
-print(f"|mlf - pymtl|   = {difference[jmax]:.6e}")
-print(f"|mlf - mpmath|  = {abs(mlf[jmax] - mp_reference[jmax]):.6e}")
+print(f"|mlfp - pymtl|   = {difference[jmax]:.6e}")
+print(f"|mlfp - mpmath|  = {abs(mlfp[jmax] - mp_reference[jmax]):.6e}")
 print(f"|pymtl  - mpmath| = {abs(reference[jmax] - mp_reference[jmax]):.6e}")
 
 ```
 
 ```python
 import numpy as np
-from mlf import mittag_leffler
+from mlfp import mittag_leffler
 z = np.linspace(0.4, 2.0) + 3j * np.linspace(0.5, 1.5)
 ml = mittag_leffler(z, alpha=0.5, beta=2.5)
 print(z)

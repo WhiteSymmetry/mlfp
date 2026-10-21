@@ -5,11 +5,11 @@ schema_version: 1
 # can later be used in Jinja expressions
 context:
   version: 0.1.0
-  name: mlf
+  name: mlfp
 
 # top level package information (name and version)
 package:
-  name: mlf
+  name: mlfp
   version: 0.1.0
 
 source:
@@ -40,17 +40,17 @@ requirements:
 #  requires: []  # veya boş liste
 #  - python:
 #      imports:
-#        - mlf
+#        - mlfp
 
 # information about the package
 about:
-  homepage: https://github.com/WhiteSymmetry/mlf/
+  homepage: https://github.com/WhiteSymmetry/mlfp/
   license: MIT
-  summary: 'mlf'
+  summary: 'mlfp'
   description: |
-    mlf
-  repository: https://github.com/WhiteSymmetry/mlf/
-  documentation: https://github.com/WhiteSymmetry/mlf/
+    mlfp
+  repository: https://github.com/WhiteSymmetry/mlfp/
+  documentation: https://github.com/WhiteSymmetry/mlfp/
 
 # the below is conda-forge specific!
 extra:

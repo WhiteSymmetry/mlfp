@@ -3,11 +3,11 @@ preview = ["pixi-build"]
 authors = ["Mehmet Keçeci <enfo@tuta.io>"]
 channels = ["https://prefix.dev/bilgi", "bilgi", "pypi", "https://prefix.dev/conda-forge", "https://conda.modular.com/max-nightly", "conda-forge", "https://repo.prefix.dev/modular-community"]
 platforms = ["linux-64", "osx-arm64", "osx-64"]
-name = "mlf"
+name = "mlfp"
 version = "0.1.0"
 
 [package]
-name = "mlf"
+name = "mlfp"
 version = "0.1.0"
 license = "MIT"
 
@@ -25,15 +25,15 @@ ruff = ">=0.9.0"
 
 [tasks]
 build = "python -m build"
-start = "python -c 'import mlf; print(mlf.__version__)'"
+start = "python -c 'import mlfp; print(mlfp.__version__)'"
 lint = "ruff check ."
 fmt = "ruff format ."
 fix = "ruff check --fix . || true"
 serve = { cmd = "python -m http.server", cwd = "docs" }
-install-mlf = "pip install git+https://github.com/WhiteSymmetry/mlf"
+install-mlfp = "pip install git+https://github.com/WhiteSymmetry/mlfp"
 install = "pip install -e ."
 test = { depends-on = ["install"], cmd = "pytest" }
-install-deps = "pip install mlf"
+install-deps = "pip install mlfp"
 
 [package.build.backend]
 name = "pixi-build-python"

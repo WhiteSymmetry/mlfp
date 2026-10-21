@@ -1,7 +1,7 @@
 # meta.yaml
 
 package:
-  name: mlf
+  name: mlfp
   version: "0.1.0"
 
 source:
@@ -49,10 +49,10 @@ test:
 # DİKKAT: 'test:' bölümü bilinçli olarak kaldırılmıştır.
 
 about:
-  home: https://github.com/WhiteSymmetry/mlf
+  home: https://github.com/WhiteSymmetry/mlfp
   license: MIT
   license_file: LICENSE
-  summary: mlf: Mittag-Leffler and Prabhakar function, MLF
+  summary: mlfp: Mittag-Leffler and Prabhakar function, MLF
   description: |
-    mlf: Mittag-Leffler and Prabhakar function, MLF
-  doc_url: https://github.com/WhiteSymmetry/mlf
+    mlfp: Mittag-Leffler and Prabhakar function, MLF
+  doc_url: https://github.com/WhiteSymmetry/mlfp

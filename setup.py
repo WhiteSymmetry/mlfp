@@ -13,7 +13,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
 def get_version():
-    with open('mlf/__init__.py', 'r', encoding='utf-8') as f:
+    with open('mlfp/__init__.py', 'r', encoding='utf-8') as f:
         content = f.read()
     match = re.search(r"^__version__ = ['\"]([^'\"]*)['\"]", content, re.M)
     if match:
@@ -21,16 +21,16 @@ def get_version():
     raise RuntimeError("Unable to find version string.")
 
 setup(
-    name="mlf",
+    name="mlfp",
     version=get_version(),
-    description="mlf: Mittag-Leffler and Prabhakar function, MLF",
+    description="mlfp: Mittag-Leffler and Prabhakar function, MLF",
     long_description=long_description,
     long_description_content_type="text/markdown", # Bu satır da önemlidir
     author="Mehmet Keçeci",
     maintainer="Mehmet Keçeci",
     author_email="enfo@tuta.io",
     maintainer_email="enfo@tuta.io",
-    url="https://github.com/WhiteSymmetry/mlf",
+    url="https://github.com/WhiteSymmetry/mlfp",
     packages=find_packages(),
     install_requires=[
         "numpy",

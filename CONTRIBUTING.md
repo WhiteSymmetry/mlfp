@@ -6,23 +6,23 @@ Contributions are welcome, and are greatly appreciated! Even small contributions
 
 ### Report Bugs
 
-To report a bug, first make sure there isn't already an open [GitHub Issue](https://github.com/WhiteSymmetry/mlf/issues)
+To report a bug, first make sure there isn't already an open [GitHub Issue](https://github.com/WhiteSymmetry/mlfp/issues)
 about it. If not, you can submit a new issue, making sure to include:
 
 * Your OS name and version.
 * Any details about your local setup (_e.g._, your Python environment setup) that might be helpful in troubleshooting.
-* The mlf version you are using.
+* The mlfp version you are using.
 * Detailed steps to reproduce the bug.
 * A tag, if appropriate (_e.g._, "bug" or "enhancement").
 
 ### Fix Open Issues
 
-Look through the [GitHub Issues](https://github.com/WhiteSymmetry/mlf/issues) for any
+Look through the [GitHub Issues](https://github.com/WhiteSymmetry/mlfp/issues) for any
 reported bugs. Anything tagged with "bug" and "help wanted" is open to contributions.
 
 ### Implement Features
 
-Look through the [GitHub Issues](https://github.com/WhiteSymmetry/mlf/issues) for any
+Look through the [GitHub Issues](https://github.com/WhiteSymmetry/mlfp/issues) for any
 feature requests. Anything tagged with "enhancement" and "help  wanted" is open to contributions.
 
 ### Write Documentation
@@ -32,13 +32,13 @@ part of the documentation, such as the getting started guides or the docstrings/
 
 ## Get Started!
 
-Ready to contribute? Here's how to set up mlf for local development.
+Ready to contribute? Here's how to set up mlfp for local development.
 
 1. You will need to have `git` installed on your local machine, and you will need some way to create and manage
 Python virtual environments. We recommend using `conda`.
-2. Create your own fork of the mlf [repository](https://github.com/WhiteSymmetry/mlf).
+2. Create your own fork of the mlfp [repository](https://github.com/WhiteSymmetry/mlfp).
 3. Clone your repository, for example by typing in your terminal:
-`git clone https://github.com/<your_username>/mlf.git`.
+`git clone https://github.com/<your_username>/mlfp.git`.
 4. Install `solardatatools` as editable in your new environment:
 
     ```console
@@ -77,5 +77,5 @@ Before you submit a pull request, check that it meets these guidelines:
 
 ## Code of Conduct
 
-Please note that the mlf project is released with a
+Please note that the mlfp project is released with a
 [Code of Conduct](getting_started/CODE_OF_CONDUCT.md). By contributing to this project you agree to abide by its terms.

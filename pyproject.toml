@@ -5,14 +5,14 @@ requires = ["setuptools>=84.0.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "mlf"
+name = "mlfp"
 version = "0.1.0"
 
 # Diğer proje bilgileri (isteğe bağlı ama tavsiye edilir)
 authors = [
     { name="Mehmet Keçeci", email="enfo@tuta.io" },
 ]
-description = "mlf: Mittag-Leffler and Prabhakar function, MLF"
+description = "mlfp: Mittag-Leffler and Prabhakar function, MLF"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { file="LICENSE" }
@@ -67,5 +67,5 @@ python.version = "3.14"
 configuration = "docs/conf.py"  # Build konfigürasyonu belirtin
 
 [project.urls]
-"Homepage" = "https://github.com/WhiteSymmetry/mlf"
-"Bug Tracker" = "https://github.com/WhiteSymmetry/mlf/issues"
+"Homepage" = "https://github.com/WhiteSymmetry/mlfp"
+"Bug Tracker" = "https://github.com/WhiteSymmetry/mlfp/issues"

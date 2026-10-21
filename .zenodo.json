@@ -1,7 +1,7 @@
 {
-  "title": "mlf",
+  "title": "mlfp",
   "upload_type": "software",
-  "description": "mlf: Mittag-Leffler and Prabhakar function, MLF",
+  "description": "mlfp: Mittag-Leffler and Prabhakar function, MLF",
   "creators": [
     {
       "name": "Keçeci, Mehmet",

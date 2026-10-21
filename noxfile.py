@@ -29,7 +29,7 @@ def tests(session):
     session.install("-e", ".[test]")
     
     # Testleri kod kapsamı raporu ile çalıştır
-    session.run("pytest", "--cov=mlf", "--cov-report=xml")
+    session.run("pytest", "--cov=mlfp", "--cov-report=xml")
 
 
 @nox.session(python="3.14")
@@ -41,8 +41,8 @@ def lint(session):
     session.install("ruff")
     
     # Kod kontrolü ve format kontrolü yap
-    session.run("ruff", "check", "mlf", "tests")
-    session.run("ruff", "format", "--check", "mlf", "tests")
+    session.run("ruff", "check", "mlfp", "tests")
+    session.run("ruff", "format", "--check", "mlfp", "tests")
 
 
 @nox.session(python="3.11")
@@ -52,7 +52,7 @@ def type_check(session):
     """
     session.install("mypy")
     session.install("-e", ".")
-    session.run("mypy", "mlf")
+    session.run("mypy", "mlfp")
 
 
 @nox.session(python="3.11")
@@ -61,7 +61,7 @@ def security_check(session):
     Güvenlik kontrolleri çalıştır (opsiyonel).
     """
     session.install("bandit", "safety")
-    session.run("bandit", "-r", "mlf")
+    session.run("bandit", "-r", "mlfp")
     session.run("safety", "check", "--file", "pyproject.toml")
 
 
