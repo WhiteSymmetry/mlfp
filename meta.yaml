@@ -2,11 +2,11 @@
 
 package:
   name: mlfp
-  version: "0.1.0"
+  version: "0.1.1"
 
 source:
-  url: https://files.pythonhosted.org/packages/fb/11/26201560960fdaaa58946f799116d9068704889ee1be9f9a60f76d002ac3/mlfp-0.1.0.tar.gz
-  blake2b-256: fb1126201560960fdaaa58946f799116d9068704889ee1be9f9a60f76d002ac3
+  url: 
+  blake2b-256: 
   
 build:
   noarch: python
@@ -29,6 +29,7 @@ requirements:
     - numpy
     - matplotlib
     - scipy
+    - mpmath
   build:
     - python >=3.11
     - pip
@@ -36,16 +37,19 @@ requirements:
     - numpy
     - matplotlib
     - scipy
+    - mpmath
 
 test:
   requires:
     - matplotlib
     - scipy
     - numpy
+    - mpmath
   imports:
     - numpy
     - matplotlib
     - scipy
+    - mpmath
 
 
 test:
