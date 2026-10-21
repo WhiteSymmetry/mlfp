@@ -22,7 +22,7 @@ url: 'https://github.com/WhiteSymmetry/mlfp'
 repository: 'https://anaconda.org/bilgi/mlfp'
 repository-artifact: 'https://pypi.org/project/mlfp/'
 abstract: >-
-  mlfp: Mittag-Leffler and Prabhakar function, MLF
+  mlfp; Mittag-Leffler and Prabhakar function, MLF
 keywords:
   - Kececi Layout
   - mlfp
