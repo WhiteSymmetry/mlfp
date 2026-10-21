@@ -28,6 +28,7 @@ dependencies = [
     "scipy",
     "matplotlib",
     "numpy",
+    "mpmath",
 ]
 
 [project.optional-dependencies]
@@ -39,6 +40,7 @@ test = [
     "scipy",
     "matplotlib",
     "numpy",
+    "mpmath",
 
 ]
 
