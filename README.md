@@ -584,11 +584,43 @@ MIT Lisansı altında dağıtılmaktadır. Ayrıntılar için `LICENSE` dosyası
 Bu kütüphaneyi akademik bir çalışmada kullanıyorsanız, aşağıdaki biçimde atıf yapabilirsiniz:
 
 ```bibtex
+@software{kececi_2026_23549172,
+  author       = {Keçeci, Mehmet},
+  title        = {mlfp},
+  month        = oct,
+  year         = 2026,
+  publisher    = {Open Science Articles (OSAs), Zenodo},
+  version      = {0.1.1},
+  doi          = {10.5281/zenodo.23549172},
+  url          = {https://doi.org/10.5281/zenodo.23549172},
+}
+
 @software{mlfp2026,
   title  = {mlfp: Mittag-Leffler and Prabhakar Functions for Python},
   author = {Keçeci, Mehmet},
   year   = {2026},
+  url    = {https://github.com/WhiteSymmetry/mlfp},
+  note   = {MIT License}
+}
+@software{mlfp2026p,
+  title  = {mlfp: Mittag-Leffler and Prabhakar Functions for Python},
+  author = {Keçeci, Mehmet},
+  year   = {2026},
   url    = {https://pypi.org/project/mlfp/},
+  note   = {MIT License}
+}
+@software{mlfp2026a,
+  title  = {mlfp: Mittag-Leffler and Prabhakar Functions for Python},
+  author = {Keçeci, Mehmet},
+  year   = {2026},
+  url    = {https://anaconda.org/channels/bilgi/packages/mlfp},
+  note   = {MIT License}
+}
+@software{mlfp2026d,
+  title  = {mlfp: Mittag-Leffler and Prabhakar Functions for Python},
+  author = {Keçeci, Mehmet},
+  year   = {2026},
+  url    = {https://prefix.dev/channels/bilgi/packages/mlfp},
   note   = {MIT License}
 }
 ```
