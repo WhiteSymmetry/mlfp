@@ -584,6 +584,17 @@ MIT Lisansı altında dağıtılmaktadır. Ayrıntılar için `LICENSE` dosyası
 Bu kütüphaneyi akademik bir çalışmada kullanıyorsanız, aşağıdaki biçimde atıf yapabilirsiniz:
 
 ```bibtex
+@misc{kececi_2026_23550352,
+  author       = {Keçeci, Mehmet},
+  title        = {Mittag-Leffler ve Prabhakar Fonksiyonlarının
+                   Python'da Güvenli ve Doğru Hesaplanması
+                  },
+  month        = oct,
+  year         = 2026,
+  publisher    = {Open Science Articles (OSAs), Zenodo},
+  doi          = {10.5281/zenodo.23550352},
+  url          = {https://doi.org/10.5281/zenodo.23550352},
+}
 @software{kececi_2026_23549172,
   author       = {Keçeci, Mehmet},
   title        = {mlfp},
