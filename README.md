@@ -584,7 +584,19 @@ MIT Lisansı altında dağıtılmaktadır. Ayrıntılar için `LICENSE` dosyası
 Bu kütüphaneyi akademik bir çalışmada kullanıyorsanız, aşağıdaki biçimde atıf yapabilirsiniz:
 
 ```bibtex
-@misc{kececi_2026_23550352,
+@article{kececi_2026_23605556,
+  author       = {Keçeci, Mehmet},
+  title        = {Kesirli Kuantum Dinamiği Altında Stratum Mimarisi:
+                   NV-Weyl-Majorana Karma Sistemlerinde Topolojik
+                   Koruma, Kuantum Hata Düzeltme ve Işınlanma
+                  },
+  month        = oct,
+  year         = 2026,
+  publisher    = {Zenodo},
+  doi          = {10.5281/zenodo.23605556},
+  url          = {https://doi.org/10.5281/zenodo.23605556},
+}
+@article{kececi_2026_23550352,
   author       = {Keçeci, Mehmet},
   title        = {Mittag-Leffler ve Prabhakar Fonksiyonlarının
                    Python'da Güvenli ve Doğru Hesaplanması
@@ -605,7 +617,6 @@ Bu kütüphaneyi akademik bir çalışmada kullanıyorsanız, aşağıdaki biçi
   doi          = {10.5281/zenodo.23549172},
   url          = {https://doi.org/10.5281/zenodo.23549172},
 }
-
 @software{mlfp2026,
   title  = {mlfp: Mittag-Leffler and Prabhakar Functions for Python},
   author = {Keçeci, Mehmet},
@@ -634,7 +645,7 @@ Bu kütüphaneyi akademik bir çalışmada kullanıyorsanız, aşağıdaki biçi
   url    = {https://prefix.dev/channels/bilgi/packages/mlfp},
   note   = {MIT License}
 }
-```
+
 ```
 
 ---
