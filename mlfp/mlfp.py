@@ -619,30 +619,19 @@ class MittagLeffler:
             "For complex z, use evaluate_complex() to obtain the full "
             "complex-valued result."
         )
-    """
+
+
     def _evaluate_scalar_complex(self, z: complex) -> complex:
-        #Return the full complex-valued Mittag-Leffler result.
         if abs(z) < self._MACHINE_EPS:
             return complex(1.0 / gamma_func(self.beta))
 
-        if self.gamma == 1.0:
-            if abs(z) <= self.series_threshold:
-                return self._evaluate_series(z)
-            return _invert_laplace_transform_two_parameter(
-                t=1.0,
-                z=z,
-                alpha=self.alpha,
-                beta=self.beta,
-                tolerance=self.tolerance,
-            )
-
-        return self._evaluate_series(z)
-    """
-
-    def _evaluate_scalar_complex(self, z: complex) -> complex:
-        """Return the full complex-valued Mittag-Leffler result."""
-        if abs(z) < self._MACHINE_EPS:
-            return complex(1.0 / gamma_func(self.beta))
+        # ✅ YENİ: α=1, β=1 → E_{1,1}(z) = e^z (kapalı form)
+        #    OPC bu durumda büyük negatif z'de katastrofik iptal yaşar
+        if (self.gamma == 1.0
+                and abs(self.alpha - 1.0) < 1e-12
+                and abs(self.beta - 1.0) < 1e-12):
+            with np.errstate(over="ignore", invalid="ignore"):
+                return complex(np.exp(z))
 
         if self.gamma == 1.0:
             # Küçük |z| → seri
