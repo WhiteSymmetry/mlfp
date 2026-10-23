@@ -22,9 +22,9 @@ Mittag-Leffler ve Prabhakar fonksiyonlarının hesaplanması.
 Compatible with Python 3.15+.
 """
 
-__version__ = "0.1.1"
+__version__ = "0.1.2"
 __author__ = "Mehmet Keçeci"
-__main__ = "0.1.1"
+__main__ = "0.1.2"
 
 from .mlfp import (
     # Temel eğri sınıfları
