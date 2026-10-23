@@ -12,10 +12,13 @@ version = "0.1.2"
 authors = [
     { name="Mehmet Keçeci", email="enfo@tuta.io" },
 ]
-description = "mlfp: Mittag-Leffler and Prabhakar function, MLF"
-readme = "README.md"
+maintainers = [
+    {name="Mehmet Keçeci", email="enfo@tuta.io"}
+]
+description = "mlfp; Mittag-Leffler and Prabhakar function, MLF"
+readme = {file = "README.md", content-type = "text/markdown"}
 requires-python = ">=3.11"
-license = { file="LICENSE" }
+license = "MIT"
 classifiers = [
     "Programming Language :: Python :: 3",
     "Operating System :: OS Independent",
