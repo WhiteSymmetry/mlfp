@@ -19,6 +19,8 @@ identifiers:
     value: 10.5281/zenodo.23549172
   - type: doi
     value: 10.5281/zenodo.23550352
+  - type: doi
+    value: 10.5281/zenodo.23605556
 repository-code: 'https://github.com/WhiteSymmetry/mlfp'
 url: 'https://github.com/WhiteSymmetry/mlfp'
 repository: 'https://anaconda.org/bilgi/mlfp'
