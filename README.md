@@ -13,7 +13,9 @@ Parameter validation tests
 
   [OK]   negative alpha → MittagLefflerError
   
-  [OK]   zero alpha → MittagLefflerError
+  [OK]   zero alpha (|z| < 1) → kapalı form: E_{0,β}^γ(z) = (1-z)^{-γ}/Γ(β)
+  
+  [OK]   zero alpha (|z| ≥ 1) → MittagLefflerError (seri ıraksar)
   
   [OK]   nan alpha → MittagLefflerError
   
@@ -108,6 +110,14 @@ Series vs OPC consistency (gamma = 1) — small |z|, both methods valid
 
 =====================================================================
 
+Reduction fast path (0.1.3): E^2_{α,α+1}(z) = E_{α,α}(z)/α → OPC
+
+=====================================================================
+
+  [OK  ] α=0.6, 601 nokta: indirgeme vs mpmath göreli sapma 4.7e-15; ~50–100× hızlanma
+
+=====================================================================
+
 Sample values (angle = π/2, mpmath reference uses adaptive precision)
 
 =====================================================================
@@ -170,6 +180,13 @@ print(prabhakar(2.0))  # 47.137926541...
 # 5. Functional interface
 print(mittag_leffler(1.0, alpha=0.5, beta=1.0))
 print(mittag_leffler(0.5, alpha=0.5, beta=1.0, gamma=0.7))
+
+# 6. alpha = 0 branch (0.1.3): E^gamma_{0,beta}(z) = (1-z)^(-gamma)/Gamma(beta), |z| < 1
+print(mittag_leffler(0.5, alpha=0.0, beta=1.0))            # E_{0,1}(0.5) = 2.0
+print(mittag_leffler(0.5, alpha=0.0, beta=1.0, gamma=2.0))  # E^2_{0,1}(0.5) = 4.0
+
+# 7. Reduction fast path (0.1.3): E^2_{alpha,alpha+1}(z) = E_{alpha,alpha}(z)/alpha
+print(mittag_leffler(1.0, alpha=0.5, beta=1.5, gamma=2.0))  # OPC üzerinden hızlı
 
 ```
 
@@ -237,7 +254,7 @@ print(ml)
 # mlfp — Mittag-Leffler ve Prabhakar Fonksiyonları için Python Modülü
 
 > **PyPI:** [https://pypi.org/project/mlfp/](https://pypi.org/project/mlfp/)
-> **Lisans:** MIT · **Python:** 3.11+ / 3.15 · **Bağımlılıklar:** `numpy`, `scipy`
+> **Lisans:** MIT · **Python:** 3.11+ / 3.15 · **Bağımlılıklar:** `numpy`, `scipy`, `mpmath`
 
 `mlfp` (*Mittag-Leffler Functions for Python*), iki parametreli **Mittag-Leffler** fonksiyonu $E_{\alpha,\beta}(z)$ ile üç parametreli **Prabhakar** fonksiyonu $E_{\alpha,\beta}^{\gamma}(z)$'yi float64 duyarlığında güvenli ve doğru biçimde hesaplayan açık kaynaklı bir kütüphanedir.
 
@@ -254,7 +271,8 @@ print(ml)
 7. [Doğrulama](#doğrulama)
 8. [Mevcut Kütüphanelerle Karşılaştırma](#mevcut-kütüphanelerle-karşılaştırma)
 9. [Sınırlamalar](#sınırlamalar)
-10. [Kaynaklar](#kaynaklar)
+10. [Sürüm Geçmişi](#sürüm-geçmişi)
+11. [Kaynaklar](#kaynaklar)
 
 ---
 
@@ -286,6 +304,9 @@ print(ml(1.0))                  # E_{0.5, 1}(1.0) → 5.008980080762283
 prabhakar = MittagLeffler(alpha=0.5, beta=1.0, gamma=0.7)
 print(prabhakar(0.5))           # E_{0.5, 1}^{0.7}(0.5) → 1.6154153961...
 
+# ─── α = 0 dalı (0.1.3): E^γ_{0,β}(z) = (1-z)^{-γ}/Γ(β), |z| < 1 ───
+print(mittag_leffler(0.5, alpha=0.0, beta=1.0))  # → 2.0
+
 # ─── Vektörleştirilmiş hesap ───
 z = np.array([0.1, 0.5, 1.0], dtype=complex)
 print(ml.evaluate_complex(z))   # NDArray[np.complex128]
@@ -305,35 +326,37 @@ print(value)
 
 $$
 E_{\alpha,\beta}(z) = \sum_{k=0}^{\infty} \frac{z^{k}}{\Gamma(\alpha k + \beta)},
-\qquad \alpha > 0,\ \beta \in \mathbb{R}
+\qquad \alpha \ge 0\ (\alpha = 0 \text{ için } |z| < 1),\ \beta \in \mathbb{R}
 $$
 
 **Üç parametreli Prabhakar:**
 
 $$
-E_{\alpha,\beta}^{\gamma}(z) = \frac{1}{\Gamma(\gamma)}
-  \sum_{k=0}^{\infty}
+E_{\alpha,\beta}^{\gamma}(z) = \sum_{k=0}^{\infty}
   \frac{(\gamma)_{k}\, z^{k}}{k!\,\Gamma(\alpha k + \beta)},
-\qquad \alpha > 0,\ \gamma > 0
+\qquad \alpha \ge 0\ (\alpha = 0 \text{ için } |z| < 1),\ \gamma > 0
 $$
 
-burada $(\gamma)_{k} = \Gamma(\gamma + k) / \Gamma(\gamma)$ Pochhammer sembolüdür.
+burada $(\gamma)_{k} = \Gamma(\gamma + k) / \Gamma(\gamma)$ Pochhammer sembolüdür. Bu, literatürdeki standart tanımdır (Prabhakar 1971; Gorenflo vd. 2020); $\gamma = 1$ iken $(1)_{k}/k! = 1$ olduğundan iki parametreli fonksiyona indirgenir.
 
 | Fonksiyon | Hesaplama Yöntemi |
 |-----------|-------------------|
 | İki parametreli Mittag-Leffler | Hibrit OPC + Taylor serisi |
-| Üç parametreli Prabhakar | Taylor serisi |
+| Üç parametreli Prabhakar | Taylor serisi (küçük $\lvert z \rvert$) + adaptif `mpmath` yedeklemesi (büyük $\lvert z \rvert$) |
+| Prabhakar ($\gamma = 2,\ \beta = \alpha + 1$) | İndirgeme $E^{2}_{\alpha,\alpha+1}(z) = E_{\alpha,\alpha}(z)/\alpha$ üzerinden OPC hızlı yolu |
+| $\alpha = 0$ (0.1.3) | Kapalı form $(1-z)^{-\gamma}/\Gamma(\beta)$, yalnızca $\lvert z \rvert < 1$ |
 
 ### Sayısal Yöntemler
 
 - **Garrappa'nın Optimal Parabolik Kontur (OPC)** yöntemi — ters Laplace dönüşümü üzerinden yüksek hassasiyetli hesap.
 - **Hibrit geçiş** — $\lvert z \rvert \le \tau$ (varsayılan $\tau = 0.1$) için Taylor serisi, aksi halde OPC.
-- **Prabhakar için doğru ayrım** — $\gamma \neq 1$ durumunda OPC geçersizdir (dallanma noktaları), bu nedenle seri kullanılır.
+- **Prabhakar için doğru ayrım** — $\gamma \neq 1$ durumunda OPC geçersizdir (dallanma noktaları): küçük $\lvert z \rvert$ için Taylor serisi, büyük $\lvert z \rvert$ için adaptif hassasiyetli `mpmath` yedeklemesi kullanılır.
+- **İndirgeme hızlı yolu (0.1.3)** — $\gamma = 2,\ \beta = \alpha + 1$ iken $E^{2}_{\alpha,\alpha+1}(z) = E_{\alpha,\alpha}(z)/\alpha$ özdeşliği üzerinden iki parametreli OPC'ye yönlendirme (ör. kesirli kinetikte $B(u) = u^{\alpha} E^{2}_{\alpha,\alpha+1}(-u^{\alpha})$); doğrudan mpmath yedeklemesine kıyasla ~50–100× hızlanma.
 - **Karmaşık düzlemde tam destek** — hem gerçek hem sanal argümanlar.
 
 ### Özel Durumlar
 
-Aşağıdaki kapalı formlar otomatik olarak doğru hesaplanır:
+Aşağıdaki kapalı formlar ve özdeşlikler otomatik olarak uygulanır:
 
 $$
 \begin{aligned}
@@ -341,7 +364,9 @@ E_{1,1}(z) &= e^{z} \\
 E_{2,1}(z) &= \cosh\!\left(\sqrt{z}\right) \\
 E_{1/2,1}(z) &= e^{z^{2}}\,\mathrm{erfc}(-z) \\
 E_{\alpha,\beta}(0) &= \frac{1}{\Gamma(\beta)} \\
-E_{\alpha,\beta}^{\gamma}(0) &= \frac{1}{\Gamma(\beta)} \quad (\gamma\text{'dan bağımsız})
+E_{\alpha,\beta}^{\gamma}(0) &= \frac{1}{\Gamma(\beta)} \quad (\gamma\text{'dan bağımsız}) \\
+E_{0,\beta}^{\gamma}(z) &= \frac{(1-z)^{-\gamma}}{\Gamma(\beta)} \quad (\alpha = 0,\ \lvert z \rvert < 1;\ \text{0.1.3}) \\
+E_{\alpha,\alpha+1}^{2}(z) &= \frac{E_{\alpha,\alpha}(z)}{\alpha} \quad (\text{0.1.3})
 \end{aligned}
 $$
 
@@ -375,13 +400,18 @@ Reduce |z|, or use mpmath for higher-precision arithmetic.
 - Modül bu durumlarda test referansı için **adaptif `mpmath.dps`** önerir.
 - Kullanıcıya güvenli aralık hakkında bilgi verir.
 
+### Seri Yakınsama Doğruluğu (0.1.3)
+
+- $\Gamma$ kutbu nedeniyle sıfır çıkan seri terimi (örn. $\alpha k + \beta$ negatif tam sayıya denk gelirse) yakınsama kanıtı olarak **sayılmaz**; seri erken kesilmez (örn. $E_{0.5,-0.5}(0.05)$).
+- Prabhakar mpmath yedeklemesinde `rgamma` kullanılır: $\beta = 0, -1, \dots$ kutuplarında hata yerine doğru değer (örn. $E^{2}_{1,0}(z) = (z^{2}+2z)\,e^{z}$).
+
 ### Parametre Doğrulaması
 
 `__post_init__` içinde otomatik doğrulama:
 
 | Parametre | Kural |
 |-----------|-------|
-| `alpha` | $\alpha > 0$, sonlu |
+| `alpha` | $\alpha \ge 0$, sonlu ($\alpha = 0$ için değerlendirme aşamasında $\lvert z \rvert < 1$ zorunlu) |
 | `beta` | Sonlu reel |
 | `gamma` | $\gamma > 0$, sonlu |
 | `tolerance` | $0 < \varepsilon < 1$ |
@@ -411,6 +441,9 @@ print(ml.evaluate_complex(1.0j))  # karmaşık argüman → complex
 ```python
 value = mittag_leffler(1.0, alpha=0.5, beta=1.0)
 print(value)
+
+# 0.1.3: serinin en fazla kaç terim toplanacağı artık fonksiyon API'sinden de ayarlanabilir
+value = mittag_leffler(0.05, alpha=0.5, beta=-0.5, max_series_terms=200_000)
 ```
 
 ### Çift Çıktı Modu
@@ -456,6 +489,10 @@ class MittagLefflerError(ValueError):
 
 Tüm hatalar tek bir istisna sınıfından türetilir → `try/except` ile kolay yakalama.
 
+### Yan Etkisiz İçe Aktarma (0.1.3)
+
+`import mlfp` artık `mpmath`'ın küresel `mp.dps` değerini değiştirmez; yedekleme kendi `workdps` bağlamı içinde çalışır.
+
 ---
 
 ## Yazılım Mühendisliği Özellikleri
@@ -465,6 +502,7 @@ Tüm hatalar tek bir istisna sınıfından türetilir → `try/except` ile kolay
 - Vektörleştirilmiş hesaplama — OPC integrandı NumPy ile bir kerede değerlendirilir.
 - Otomatik düğüm sayısı — $\text{nodes} \le 200$ hedefine göre dinamik ayar.
 - Hibrit geçiş — küçük $\lvert z \rvert$ için seri (OPC'den çok daha hızlı).
+- İndirgeme hızlı yolu (0.1.3) — $E^{2}_{\alpha,\alpha+1}$ ailesi OPC üzerinden ~50–100× hızlı.
 - Yeniden kullanılabilir sınıf — parametre doğrulaması bir kez yapılır.
 
 ### Kod Kalitesi
@@ -494,7 +532,7 @@ MittagLeffler(alpha=0.5, beta=1.0, gamma=1.0, tolerance=1e-15,
 
 ### Kapsamlı Test Altyapısı
 
-Modül, **37 pytest testi** ile doğrulanmıştır:
+Modül, **37 pytest testi** ve **0.1.3 yamasıyla gelen 26 ek test** ile doğrulanmıştır:
 
 | Test Grubu | Kapsam | Sayı |
 |------------|--------|------|
@@ -505,7 +543,8 @@ Modül, **37 pytest testi** ile doğrulanmıştır:
 | Vektörleştirme | Dizi–skaler tutarlılığı | 3 |
 | Seri–OPC | İç tutarlılık | 4 |
 | Rekürans | Fonksiyonel ilişki | 3 |
-| **Toplam** | | **36 PASS + 1 SKIP** |
+| 0.1.3 yama testleri | Sıfır terim, $\beta=0$ kutbu, indirgeme, $\alpha=0$, API, import yan etkisi, README regresyonu | 26 |
+| **Toplam** | | **63 PASS + 1 SKIP** |
 
 ### Adaptif mpmath Referansı
 
@@ -522,12 +561,14 @@ ile dinamik olarak belirlenerek `mpmath` ile hesaplanır. Bu, küçük $\alpha$ 
 - Tüm geçerli kombinasyonlarda **göreli hata** $< 10^{-13}$.
 - Örnek: $\alpha=1.0$, $\beta=1.5$, $\theta=0$ için $\max_{\text{rel}} = 1.49 \times 10^{-15}$.
 - Örnek: $\alpha=0.25$, $\beta=0.5$, $\theta=0$ için $\max_{\text{rel}} = 7.23 \times 10^{-14}$.
+- Örnek (0.1.3): $E^{2}_{0.6,1.6}(-u^{0.6})$, 601 nokta, mpmath referansına göre maks. göreli sapma $4.7 \times 10^{-15}$.
 
 ### Doğrulama Araçları
 
 | Dosya | İşlev |
 |-------|-------|
 | `test_special_cases.py` | 37 pytest testi |
+| `test_mlfp_fixes.py` | 0.1.3 yama testleri (orijinal 0.1.2 ile karşılaştırmalı) |
 | `run_comparison.py` | Kapsamlı konsol karşılaştırması |
 | `plot_comparison.py` | Değer, mutlak hata, göreli hata panelleri |
 | `_ml_helpers.py` | Adaptif referans + hata istatistikleri |
@@ -540,6 +581,8 @@ ile dinamik olarak belirlenerek `mpmath` ile hesaplanır. Bu, küçük $\alpha$ 
 |---------|:------:|:-----------------:|:------------:|:-----------:|
 | İki parametreli ML | ✅ | ✅ | ✅ | ✅ |
 | Prabhakar ($\gamma \neq 1$) | ✅ | ❌ | ❌ | Kısmi |
+| $\alpha = 0$ kapalı formu | ✅ | ❌ | ❌ | ❌ |
+| $E^{2}_{\alpha,\alpha+1}$ indirgemesi | ✅ | ❌ | ❌ | ❌ |
 | Float64 taşma güvenliği | ✅ | ❌ | ❌ | ❌ |
 | Açıklayıcı hata mesajları | ✅ | ❌ | ❌ | ❌ |
 | Adaptif test referansı | ✅ | ❌ | ❌ | ❌ |
@@ -554,10 +597,27 @@ ile dinamik olarak belirlenerek `mpmath` ile hesaplanır. Bu, küçük $\alpha$ 
 
 | Sınırlama | Açıklama | Gelecek Çalışma |
 |-----------|----------|-----------------|
-| $\alpha = 0$ | Matematiksel olarak $E_{0,\beta}(z) = 1/(\Gamma(\beta)(1-z))$ iyi tanımlı; mevcut OPC uygulaması $\alpha > 0$ varsayar | Özel bir `alpha == 0` dalı eklenebilir |
-| Prabhakar büyük $\lvert z \rvert$ | $\gamma \neq 1$ ve büyük $\lvert z \rvert$ için seri yakınsaması yavaşlayabilir | Asimptotik açılım entegrasyonu |
+| Prabhakar büyük $\lvert z \rvert$ | $\gamma \neq 1$ ve büyük $\lvert z \rvert$ için otomatik `mpmath` yedeklemesi kullanılır (doğru ama yavaş) | OPC'nin Prabhakar'a doğrudan uyarlanması (Garrappa 2015 üç parametreli kapsamı); asimptotik açılım |
+| $\alpha = 0$ değerlendirme aralığı | Kapalı form yalnızca $\lvert z \rvert < 1$ için yakınsar; $\lvert z \rvert \ge 1$'de açıklayıcı hata fırlatılır | Analitik devam |
 | Matris argüman | Yalnızca skaler/karmaşık $z$ desteklenir | Matris değerli ML fonksiyonu eklenebilir |
-| Yüksek duyarlık | float64 ile sınırlı | İsteğe bağlı `mpmath` arka ucu |
+| Yüksek duyarlık | float64 ile sınırlı; $\gamma \neq 1$ ve büyük $\lvert z \rvert$ için `mpmath` otomatik yedekleme zaten vardır | Kullanıcıya açık `dps` ayarı |
+
+---
+
+## Sürüm Geçmişi
+
+### 0.1.3
+
+- **Düzeltme:** $\Gamma$ kutbundan sıfır çıkan seri terimi artık yakınsama kanıtı sayılmıyor ($E_{0.5,-0.5}(0.05)$ hatası giderildi).
+- **Düzeltme:** mpmath yedeklemesinde `rgamma` — $\beta = 0, -1, \dots$ kutuplarında "gamma function pole" hatası yerine doğru değer (örn. $E^{2}_{1,0}(-1) = -e^{-1}$).
+- **Yeni:** $\gamma = 2,\ \beta = \alpha + 1$ indirgemesi $E^{2}_{\alpha,\alpha+1}(z) = E_{\alpha,\alpha}(z)/\alpha$ — OPC hızlı yolu, ~50–100× hızlanma.
+- **Yeni:** $\alpha = 0$ dalı — $E^{\gamma}_{0,\beta}(z) = (1-z)^{-\gamma}/\Gamma(\beta)$, $\lvert z \rvert < 1$.
+- **Yeni:** `mittag_leffler()` işlev API'sinde `max_series_terms` parametresi.
+- **Değişiklik:** `import mlfp` artık `mpmath`'ın küresel `mp.dps` değerini değiştirmiyor.
+
+### 0.1.2
+
+- İlk kararlı PyPI sürümü.
 
 ---
 
@@ -613,7 +673,7 @@ Bu kütüphaneyi akademik bir çalışmada kullanıyorsanız, aşağıdaki biçi
   month        = oct,
   year         = 2026,
   publisher    = {Open Science Articles (OSAs), Zenodo},
-  version      = {0.1.1},
+  version      = {0.1.3},
   doi          = {10.5281/zenodo.23549172},
   url          = {https://doi.org/10.5281/zenodo.23549172},
 }
