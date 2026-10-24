@@ -19,12 +19,12 @@ Mittag-Leffler ve Prabhakar fonksiyonlarının hesaplanması.
   treatment is not mathematically valid for gamma != 1 because the
   singularities are generally branch points rather than simple poles.
 
-Compatible with Python 3.15+.
+Compatible with Python 3.11-3.15.
 """
 
-__version__ = "0.1.2"
+__version__ = "0.1.3"
 __author__ = "Mehmet Keçeci"
-__main__ = "0.1.2"
+__main__ = "0.1.3"
 
 from .mlfp import (
     # Temel eğri sınıfları
@@ -37,6 +37,7 @@ from .mlfp import (
     mittag_leffler,
     _asymptotic_expansion,
     _mpmath_fallback,
+    _reduced_evaluator,
 
 )
 
@@ -50,5 +51,6 @@ __all__ = [
     "mittag_leffler",
     "_asymptotic_expansion",
     "_mpmath_fallback",
+    "_reduced_evaluator",
 
 ]
