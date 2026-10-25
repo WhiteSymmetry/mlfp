@@ -71,6 +71,26 @@ build.image = "stable"
 python.version = "3.14"
 configuration = "docs/conf.py"  # Build konfigürasyonu belirtin
 
+[tool.ruff]
+target-version = "py311"
+line-length = 88
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "C4", "SIM", "RUF"]
+ignore = ["E501", "E741", "RUF001"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101", "E501"]
+"docs/*"  = ["E501", "RUF001"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["mlfp"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
 [project.urls]
 "Homepage" = "https://github.com/WhiteSymmetry/mlfp"
 "Bug Tracker" = "https://github.com/WhiteSymmetry/mlfp/issues"
