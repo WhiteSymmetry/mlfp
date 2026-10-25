@@ -22,9 +22,9 @@ Mittag-Leffler ve Prabhakar fonksiyonlarının hesaplanması.
 Compatible with Python 3.11-3.15.
 """
 
-__version__ = "0.1.4"
+__version__ = "0.1.5"
 __author__ = "Mehmet Keçeci"
-__main__ = "0.1.4"
+__main__ = "0.1.5"
 
 from .mlfp import (
     # Temel eğri sınıfları
@@ -38,7 +38,7 @@ from .mlfp import (
     _asymptotic_expansion,
     _mpmath_fallback,
     _reduced_evaluator,
-
+    derivative,
 )
 
 __all__ = [
@@ -52,5 +52,6 @@ __all__ = [
     "_asymptotic_expansion",
     "_mpmath_fallback",
     "_reduced_evaluator",
+    "derivative",
 
 ]
