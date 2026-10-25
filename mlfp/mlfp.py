@@ -22,18 +22,39 @@ Mittag-Leffler ve Prabhakar fonksiyonlarının hesaplanması.
 
 Compatible with Python 3.11-3.15.
 
-0.1.3 düzeltmeleri
-------------------
+0.1.4 düzeltmeleri (0.1.3'e göre)
+----------------------------------
+1. __call__ otomatik tip seçimi (NumPy np.exp / np.sin geleneğiyle
+   uyumlu): gerçek z → float64; karmaşık z → complex128;
+   karmaşık dizi → complex128 dizi; karışık dizi → complex128 dizi.
+   evaluate_complex(z) her zaman complex128 döner (davranışı korundu).
+   mittag_leffler() fonksiyonu da aynı otomatik tipi kullanır.
+
+2. _invert_laplace_transform_two_parameter: rezidü kontrolü kontur
+   integralinden ÖNCE yapılıyor (hızlı başarısızlık); integrand
+   hesabı np.errstate(over, invalid, under="ignore") içinde
+   (RuntimeWarning sızıntısı önlenir); sonuç isfinite kontrolünden
+   geçiriliyor (sessiz inf/nan yerine açıklayıcı MittagLefflerError).
+
+3. _mpmath_fallback: complex(total) dönüşümünden ÖNCE
+   log10|total| > 308 kontrolü — float64 aralığını sessizce aşan
+   sonuçlar için açıklayıcı MittagLefflerError fırlatılır.
+
+4. Global _mp.mp.dps = 50 ataması kaldırıldı — import yan etkisi yok.
+   _mpmath_fallback zaten with _mp.workdps(dps) bağlamını kullanır;
+   çağıran tarafın mpmath hassasiyeti etkilenmez.
+
+0.1.3 düzeltmeleri (referans)
+------------------------------
 1. _evaluate_series: Γ kutbu nedeniyle sıfır çıkan seri terimi artık
    yakınsama kanıtı sayılmıyor (önceki davranış: E_{0.5,-0.5}(0.05)
    yanlışlıkla yalnız k=0 terimini döndürüyordu).
 2. _mpmath_fallback: 1/Γ yerine rgamma — β = 0, −1, … kutuplarında
    "gamma function pole" hatası yerine doğru değer (örn. E^2_{1,0}(z)).
-3. YENİ indirgeme: E^2_{α,α+1}(z) = E_{α,α}(z)/α → OPC hızlı yolu
+3. İndirgeme: E^2_{α,α+1}(z) = E_{α,α}(z)/α → OPC hızlı yolu
    (~100× hızlanma; doğrudan mpmath yedeklemesine kıyasla).
-4. YENİ: α = 0 dalı — E_{0,β}^γ(z) = (1-z)^{-γ}/Γ(β), |z| < 1.
+4. α = 0 dalı: E_{0,β}^γ(z) = (1-z)^{-γ}/Γ(β), |z| < 1.
 5. mittag_leffler() işlev API'sine max_series_terms parametresi eklendi.
-6. import sırasında mpmath'ın küresel dps değeri artık değiştirilmiyor.
 """
 
 from __future__ import annotations
@@ -46,13 +67,13 @@ from typing import ClassVar, Final
 
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
-from scipy.special import gamma as gamma_func, erfcx
+from scipy.special import gamma as gamma_func, erfcx, rgamma, gammaln, poch
 
 
 import mpmath as _mp
-# NOT: _mp.mp.dps küresel durumu DEĞİŞTİRİLMEZ; _mpmath_fallback kendi
-# workdps(dps) bağlamını kullanır. (Önceki sürümde import sırasında
-# _mp.mp.dps = 50 atanıyordu — kullanıcı oturumuna yan etkiydi.)
+# Not: global mp.dps DEĞİŞTİRİLMEZ. _mpmath_fallback kendi
+# workdps(dps) bağlamını kullanır; çağıran tarafın mpmath
+# hassasiyetini etkilemez.
 
 
 class MittagLefflerError(ValueError):
@@ -166,6 +187,17 @@ def _mpmath_fallback(
             total += term
             # DÜZELTME: sıfır terim yakınsama kanıtı sayılmaz
             if term != 0 and abs(term) < abs(total) * tol:
+                # ---- YENİ: float64 aralık kontrolü ----
+                if total != 0:
+                    log10_mag = float(_mp.log10(abs(total)))
+                    if log10_mag > 308.0:
+                        raise MittagLefflerError(
+                            f"Mittag-Leffler value (~10^{log10_mag:.0f}) "
+                            f"exceeds float64 range (max ~10^308) for "
+                            f"α={alpha}, β={beta}, γ={gamma}, |z|={abs_z:.3g}. "
+                            "The function value cannot be represented in "
+                            "Python complex (float64)."
+                        )
                 return complex(total)
 
     raise MittagLefflerError(
@@ -466,24 +498,14 @@ def _invert_laplace_transform_two_parameter(
 
     contour = mu * (1j * u_values + 1.0) ** 2
     derivative = -2.0 * mu * u_values + 2j * mu
-    integrand = (
-        np.exp(contour * t)
-        * contour ** (alpha - beta)
-        / (contour**alpha - z)
-        * derivative
-    )
-
-    integral = step * integrand.sum() / (2j * math.pi)
 
     # ------------------------------------------------------------------
-    # Residue contribution from branch points to the right of the contour
+    # 1) Rezidü kontrolü EN ÖNCE — hızlı başarısızlık
     # ------------------------------------------------------------------
     residue_poles = poles[selected + 1 :]
+    residues = 0.0
 
     if residue_poles.size:
-        # |Res_k| ≈ exp(t·Re(s_k)) · |s_k|^(1-β)
-        # We check the total log-magnitude BEFORE calling exp() so that
-        # overflow is turned into a clear error instead of a silent nan/inf.
         magnitudes = np.maximum(np.abs(residue_poles), 1e-300)
         log_mags = (
             t * residue_poles.real
@@ -501,11 +523,33 @@ def _invert_laplace_transform_two_parameter(
                 "Reduce |z|, or use mpmath for higher-precision arithmetic."
             )
 
-        residues = (
-            residue_poles ** (1.0 - beta) * np.exp(t * residue_poles)
-        ).sum() / alpha
-    else:
-        residues = 0.0
+        with np.errstate(over="ignore", invalid="ignore"):
+            residues = (
+                residue_poles ** (1.0 - beta)
+                * np.exp(t * residue_poles)
+            ).sum() / alpha
+
+    # ------------------------------------------------------------------
+    # 2) Kontur integrali — numpy taşma uyarılarını sustur
+    # ------------------------------------------------------------------
+    # Tekil terimler geçici olarak taşsa bile nihai toplam sonlu
+    # olabilir; bu yüzden errstate ile uyarıları susturup SONUCU kontrol
+    # ediyoruz (önceki sürümde uyarı sızıyordu).
+    with np.errstate(over="ignore", invalid="ignore", under="ignore"):
+        integrand = (
+            np.exp(contour * t)
+            * contour ** (alpha - beta)
+            / (contour**alpha - z)
+            * derivative
+        )
+        integral = step * integrand.sum() / (2j * math.pi)
+
+    if not np.isfinite(integral) or not np.isfinite(residues):
+        raise MittagLefflerError(
+            f"Laplace inversion produced non-finite result for "
+            f"α={alpha}, β={beta}, |z|={abs(z):.3g}. "
+            "The value may be beyond float64 range."
+        )
 
     return complex(integral + residues)
 
@@ -583,22 +627,51 @@ class MittagLeffler:
     # ------------------------------------------------------------------
     def __call__(
         self, z: ArrayLike
-    ) -> NDArray[np.float64] | np.float64:
-        """Evaluate for real arguments (raises on complex input)."""
+    ) -> (
+        NDArray[np.float64] | np.float64
+        | NDArray[np.complex128] | np.complex128
+    ):
+        r"""
+        Evaluate the function at one point or over an array.
+
+        Return type follows NumPy's convention (like ``np.exp``, ``np.sin``):
+
+        * **Real ``z``** (imaginary part exactly 0): returns ``float64``.
+        * **Complex ``z``** (any non-zero imaginary part): returns
+          ``complex128`` with the full result.
+
+        Use :meth:`evaluate_complex` if you always want a complex result
+        (even for real inputs).
+        """
         z_array = np.asarray(z, dtype=np.complex128)
 
+        # Scalar: decide by imaginary part of the value itself
         if z_array.ndim == 0:
-            return np.float64(self._evaluate_scalar(complex(z_array)))
+            z_val = complex(z_array)
+            if z_val.imag == 0.0:
+                return np.float64(self._evaluate_scalar(z_val))
+            return np.complex128(self._evaluate_scalar_complex(z_val))
+
+        # Array: decide once for the whole batch
+        if np.all(z_array.imag == 0.0):
+            evaluate = np.vectorize(
+                lambda value: self._evaluate_scalar(complex(value)),
+                otypes=[np.float64],
+            )
+            return evaluate(z_array)
 
         evaluate = np.vectorize(
-            lambda value: self._evaluate_scalar(complex(value)),
-            otypes=[np.float64],
+            lambda value: self._evaluate_scalar_complex(complex(value)),
+            otypes=[np.complex128],
         )
         return evaluate(z_array)
 
     def evaluate(
         self, z: ArrayLike
-    ) -> NDArray[np.float64] | np.float64:
+    ) -> (
+        NDArray[np.float64] | np.float64
+        | NDArray[np.complex128] | np.complex128
+    ):
         """Explicit alias for :meth:`__call__`."""
         return self(z)
 
@@ -608,14 +681,7 @@ class MittagLeffler:
     def evaluate_complex(
         self, z: ArrayLike
     ) -> NDArray[np.complex128] | np.complex128:
-        """
-        Evaluate the Mittag-Leffler / Prabhakar function and return the
-        full complex-valued result.
-
-        For ``gamma == 1`` the OPC method (or the Taylor series, if
-        ``|z| <= series_threshold``) is used; for ``gamma != 1`` the
-        defining power series is used.
-        """
+        """Evaluate and return the full complex-valued result."""
         z_array = np.asarray(z, dtype=np.complex128)
 
         if z_array.ndim == 0:
@@ -633,7 +699,11 @@ class MittagLeffler:
     # Internal evaluators
     # ------------------------------------------------------------------
     def _evaluate_scalar(self, z: complex) -> float:
-        """Return the real part for real z; raise otherwise."""
+        """Return the real part for real z; raise otherwise.
+
+        Internal API. `__call__` always dispatches here only for z with
+        z.imag == 0.0, so the guard is defensive.
+        """
         value = self._evaluate_scalar_complex(z)
         if z.imag == 0.0:
             return float(value.real)
@@ -723,29 +793,28 @@ class MittagLeffler:
         # ---- CRITICAL FIX ----
         # k=0 term is 1/Gamma(beta), not 1.
         total = complex(1.0 / gamma_func(self.beta))
-
-        pochhammer = 1.0
         z_power = 1.0 + 0.0j
-        factorial = 1
+        log_gamma_coef = float(gammaln(self.gamma))  # sabit
 
         for k in range(1, self.max_series_terms + 1):
-            pochhammer *= self.gamma + k - 1.0
             z_power *= z
-            factorial *= k
-
-            term = (
-                pochhammer
-                * z_power
-                / (factorial * gamma_func(self.alpha * k + self.beta))
+            # (γ)_k / k! — log ölçekte, taşmadan
+            log_ratio = (
+                float(gammaln(self.gamma + k))
+                - log_gamma_coef
+                - float(gammaln(k + 1))
             )
-            # DÜZELTME: Γ kutbu nedeniyle sıfır çıkan terim (αk+β negatif
-            # tam sayıya denk gelirse 1/Γ = 0) yakınsama kanıtı SAYILMAZ;
-            # aksi halde seri erken kesilir (örn. E_{0.5,-0.5}(0.05) için
-            # yalnız k=0 terimi döner, hata ~1.5e-3 olur).
+            # 1/Γ(αk+β) — rgamma büyük argümanlarda 0'a güvenle yaklaşır
+            rgamma_val = float(rgamma(self.alpha * k + self.beta))
+
+            try:
+                term = math.exp(log_ratio) * z_power * rgamma_val
+            except OverflowError:
+                continue
+
             if term == 0:
                 continue
             total += term
-
             if abs(term) <= self.tolerance * (1.0 + abs(total)):
                 return total
 
@@ -792,21 +861,27 @@ def mittag_leffler(
     series_threshold: float = 0.1,
     max_series_terms: int = 100_000,
 ) -> (
-    NDArray[np.float64]
-    | np.float64
-    | NDArray[np.complex128]
-    | np.complex128
+    NDArray[np.float64] | np.float64
+    | NDArray[np.complex128] | np.complex128
 ):
     """
     Convenience wrapper.
 
-    If ``z`` has a complex dtype the full complex result is returned;
-    otherwise the real part is returned.
+    Return type follows the input type:
+
+    * **Real ``z``** → ``float64``
+    * **Complex ``z``** (any non-zero imaginary part) → ``complex128``
+
+    For a guaranteed complex return, use
+    ``MittagLeffler(...).evaluate_complex(z)``.
 
     Examples
     --------
     >>> mittag_leffler(1.0, alpha=0.5)
     5.008980080762283
+
+    >>> mittag_leffler(1.0j, alpha=0.5)
+    (0.36787944117144233+0.6071577058413894j)
     """
     evaluator = MittagLeffler(
         alpha=alpha,
@@ -816,7 +891,4 @@ def mittag_leffler(
         series_threshold=series_threshold,
         max_series_terms=max_series_terms,
     )
-    z_array = np.asarray(z)
-    if np.iscomplexobj(z_array):
-        return evaluator.evaluate_complex(z_array)
-    return evaluator(z_array)
+    return evaluator(z)
