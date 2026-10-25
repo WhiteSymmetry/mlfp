@@ -606,7 +606,29 @@ ile dinamik olarak belirlenerek `mpmath` ile hesaplanır. Bu, küçük $\alpha$ 
 
 ## Sürüm Geçmişi
 
-### 0.1.3
+0.1.4 düzeltmeleri (0.1.3'e göre)
+----------------------------------
+1. __call__ otomatik tip seçimi (NumPy np.exp / np.sin geleneğiyle
+   uyumlu): gerçek z → float64; karmaşık z → complex128;
+   karmaşık dizi → complex128 dizi; karışık dizi → complex128 dizi.
+   evaluate_complex(z) her zaman complex128 döner (davranışı korundu).
+   mittag_leffler() fonksiyonu da aynı otomatik tipi kullanır.
+
+2. _invert_laplace_transform_two_parameter: rezidü kontrolü kontur
+   integralinden ÖNCE yapılıyor (hızlı başarısızlık); integrand
+   hesabı np.errstate(over, invalid, under="ignore") içinde
+   (RuntimeWarning sızıntısı önlenir); sonuç isfinite kontrolünden
+   geçiriliyor (sessiz inf/nan yerine açıklayıcı MittagLefflerError).
+
+3. _mpmath_fallback: complex(total) dönüşümünden ÖNCE
+   log10|total| > 308 kontrolü — float64 aralığını sessizce aşan
+   sonuçlar için açıklayıcı MittagLefflerError fırlatılır.
+
+4. Global _mp.mp.dps = 50 ataması kaldırıldı — import yan etkisi yok.
+   _mpmath_fallback zaten with _mp.workdps(dps) bağlamını kullanır;
+   çağıran tarafın mpmath hassasiyeti etkilenmez.
+
+### 0.1.3 düzeltmeleri (referans)
 
 - **Düzeltme:** $\Gamma$ kutbundan sıfır çıkan seri terimi artık yakınsama kanıtı sayılmıyor ($E_{0.5,-0.5}(0.05)$ hatası giderildi).
 - **Düzeltme:** mpmath yedeklemesinde `rgamma` — $\beta = 0, -1, \dots$ kutuplarında "gamma function pole" hatası yerine doğru değer (örn. $E^{2}_{1,0}(-1) = -e^{-1}$).
