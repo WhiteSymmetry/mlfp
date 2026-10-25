@@ -27,9 +27,6 @@ mpmath = "*"
 [tasks]
 build = "python -m build"
 start = "python -c 'import mlfp; print(mlfp.__version__)'"
-lint = "ruff check ."
-fmt = "ruff format ."
-fix = "ruff check --fix . || true"
 serve = { cmd = "python -m http.server", cwd = "docs" }
 install-mlfp = "pip install git+https://github.com/WhiteSymmetry/mlfp"
 install = "pip install -e ."
