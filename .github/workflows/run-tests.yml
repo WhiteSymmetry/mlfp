@@ -1,4 +1,9 @@
-name: Pytest unit/integration-run-tests.yml
+name: Pytest unit/integration run-tests.yml
+
+
+permissions:
+  contents: read
+  pull-requests: write
 
 on:
   pull_request:
