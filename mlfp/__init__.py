@@ -39,6 +39,21 @@ from .mlfp import (
     _mpmath_fallback,
     _reduced_evaluator,
     derivative,
+    _normalize_param,
+)
+
+from mlfp.mlfp_matrix import (
+    MittagLefflerMatrix,
+    solve_fractional_schrodinger,
+)
+
+from mlfp.mlfp_bdg import (
+    build_bdg_hamiltonian,
+    kitaev_chain,
+    solve_fractional_bdg,
+    bdg_spectrum,
+    find_majorana_modes,
+    majorana_localization,
 )
 
 __all__ = [
@@ -53,5 +68,14 @@ __all__ = [
     "_mpmath_fallback",
     "_reduced_evaluator",
     "derivative",
+    "_normalize_param",
+    "MittagLefflerMatrix",
+    "solve_fractional_schrodinger",
+    "build_bdg_hamiltonian",
+    "kitaev_chain",
+    "solve_fractional_bdg",
+    "bdg_spectrum",
+    "find_majorana_modes",
+    "majorana_localization",
 
 ]
