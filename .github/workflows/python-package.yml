@@ -1,4 +1,9 @@
-name: Python package CI-python-package.yml
+name: Python package CI python-package.yml
+
+
+permissions:
+  contents: read
+  pull-requests: write
 
 on:
   push:
