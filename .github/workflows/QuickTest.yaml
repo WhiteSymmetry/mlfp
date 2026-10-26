@@ -1,5 +1,9 @@
 name: Quick Test
 
+permissions:
+  contents: read
+  pull-requests: write
+
 on: workflow_dispatch
 
 jobs:
