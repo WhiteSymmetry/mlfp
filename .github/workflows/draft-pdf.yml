@@ -1,6 +1,10 @@
 name: Draft PDF
 on: [push]
 
+permissions:
+  contents: read
+  pull-requests: write
+
 jobs:
   paper:
     runs-on: ubuntu-latest
