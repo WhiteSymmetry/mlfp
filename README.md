@@ -606,6 +606,56 @@ ile dinamik olarak belirlenerek `mpmath` ile hesaplanır. Bu, küçük $\alpha$ 
 
 ## Sürüm Geçmişi
 
+0.1.5 özellikleri (0.1.4'e göre)
+================================
+1. Parametrelere göre analitik türevler:
+     mlfp.derivative(z, alpha, beta, gamma, wrt="alpha")
+     MittagLeffler(...).derivative(z, wrt=...)
+   Digamma ψ(αk+β) üzerinden seri türevi (küçük |z|); büyük |z|
+   için mpmath central difference. ∂E/∂α, ∂E/∂β, ∂E/∂γ desteklenir.
+
+2. Kullanıcı kontrollü yüksek hassasiyet modu:
+     MittagLeffler(..., precision=50)
+   mpmath workdps(50) bağlamında değerlendirme; tol = 10^(−precision+3)
+   (üç guard basamağı). float64'ün 15 basamağının çok ötesine geçen
+   sonuçlar (kritik eşik, QFI sınırı vb.) için.
+
+3. Vektörel parametre desteği:
+     MittagLeffler(alpha=array, beta=array)
+   NumPy broadcasting kurallarıyla uyumlu; tek çağrıda N farklı α
+   kombinasyonu değerlendirilebilir.
+
+4. Seri taşma düzeltmesi (lgamma tabanlı):
+   _evaluate_series_with_params artık (γ)_k/k! ve 1/Γ(αk+β)
+   çarpanlarını logaritmik ölçekte (log_coef birikimiyle) hesaplar.
+   γ ≥ 2 ve büyük k için Python int faktöriyel taşması (OverflowError:
+   int too large to convert to float) ortadan kaldırıldı; aşırı büyük
+   katsayılarda mpmath fallback devreye girer.
+
+5. Matris değerli Mittag-Leffler (yeni modül mlfp/matrix.py):
+     MittagLefflerMatrix(alpha, beta, gamma, method=...)
+     → E^γ_{α,β}(A) for A ∈ ℂ^{n×n}, yöntem: "eigen" | "schur" |
+       "contour" | "auto".
+   Schur-Parlett (sla.schur + sla.solve_sylvester) varsayılan;
+   Jordan blokları için Hermite interpolasyonu (mpmath.diff);
+   Cauchy contour yöntemi 192 Gauss-Legendre düğümü ve dz/dθ
+   faktörü ile tam integral.
+     solve_fractional_schrodinger(H, psi0, t, alpha=...)
+     → kesirli Schrödinger denkleminin çözümü; α=1'de klasik
+       exp(−iHt/ħ) ile örtüşür (test edilmiş, ~10^-15 hata).
+
+6. Kesirli Bogoliubov-de Gennes (yeni modül mlfp/mltip_bdg.py):
+     build_bdg_hamiltonian(H_0, Delta)
+     kitaev_chain(N, t, mu, Delta_0) → (H_0, Delta) p-dalga
+     solve_fractional_bdg(H_0, Delta, psi0, t, alpha=...)
+     bdg_spectrum(H_0, Delta, tol=...) → gap, n_zero_modes
+     find_majorana_modes(H_0, Delta, tol=...) → Majorana tespiti
+     majorana_localization(H_0, Delta, tol=...) → uzaysal profil
+   α=1'de klasik BdG evrimiyle tam uyumlu; α≠1'de üniter olmayan
+   ancak Majorana sıfır modlarında (E=0) topolojik koruma geçerli
+   (PHS'nin zorunlu kıldığı sıfır enerji; kesirli evrim operatörü
+   genel olarak üniter olmasa da E=0 özdurum üzerinde etkisizdir).
+
 0.1.4 düzeltmeleri (0.1.3'e göre)
 ----------------------------------
 1. __call__ otomatik tip seçimi (NumPy np.exp / np.sin geleneğiyle
