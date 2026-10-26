@@ -14,7 +14,7 @@ package:
 
 source:
   url: https://pypi.org/packages/source/${{ name[0] }}/${{ name }}/${{ name }}-${{ version }}.tar.gz
-  sha256: 
+  sha256: 099eb3b76b40b5cbe861dc77f0d9d775bc75188f7d8e27bd89da3d377557671a
 
 # build number (should be incremented if a new build is made, but version is not incrementing)
 build:
