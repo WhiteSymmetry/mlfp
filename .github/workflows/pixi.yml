@@ -1,154 +1,60 @@
-# .github/workflows/pixi.yml
-name: Pixi-Release
+name: Pixi CI-https://prefix.dev/channels/bilgi
 
 on:
-  push:
-    tags:
-      - "v*"
-  # Elle tetiklemek için — Actions sekmesinden "Run workflow" butonu çıkar
   workflow_dispatch:
-    inputs:
-      dry_run:
-        description: "Dry run (build et ama prefix.dev'e yükleme)"
-        required: false
-        default: "false"
-        type: choice
-        options:
-          - "false"
-          - "true"
 
 permissions:
-  contents: read
   id-token: write
+  contents: read
 
 jobs:
-  test:
-    name: Test (linux-64)
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write   # commit push edebilmek için
+  test-and-build:
+    # Matristen gelen işletim sistemini dinamik olarak kullanır
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        # 🚀 Tüm ana işletim sistemlerini matrise ekledik
+        os: [ubuntu-latest]
+        python-version: ["3.14"]
+      fail-fast: false
+
     steps:
-      - name: Checkout
-        uses: actions/checkout@v7
+      - name: 📥 Checkout code
+        uses: actions/checkout@v7.0.1
+
+      - name: 🐍 Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v6
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          fetch-depth: 0   # tam git geçmişi (commit için gerekli)
+          python-version: ${{ matrix.python-version }}
 
-      - name: Setup pixi
-        uses: prefix-dev/setup-pixi@v0.11.2
+      - name: 🚀 Install Pixi
+        uses: prefix-dev/setup-pixi@v0.10.2
         with:
-          pixi-version: v0.81.0
-          cache: false
-          auth-host: prefix.dev
-          auth-token: ${{ secrets.PIXI_TOKEN }}
-          frozen: false      # lock dosyası yoksa veya eskiyse yeniden çöz
-          locked: false      # lock dosyasını zorunlu tutma
+          pixi-version: "latest"
+          cache: false             # Önbellek çakışmasını engeller
+          frozen: false            # Kilit dosyası yoksa veya eksikse dinamik olarak çözülmesine izin verir
 
-      - name: Update lock file (değişmişse commit'le)
-        run: |
-          git config user.name  "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          if ! git diff --quiet pixi.lock; then
-            git add pixi.lock
-            git commit -m "chore: update pixi.lock [skip ci]"
-            git push
-          else
-            echo "pixi.lock değişmedi."
-          fi
+      - name: 🧠 Cache Pixi environments & cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cache/pixi
+            ~/.pixi/envs
+          key: ${{ runner.os }}-pixi-${{ hashFiles('pixi.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-pixi-
 
-      - name: Format & lint (auto-fix)
-        run: |
-          pixi run fmt
-          pixi run fix || true   # fix edilemeyen uyarılar CI'yı durdurmasın
+      - name: 📦 Install dependencies
+        run: pixi install --frozen
 
-      - name: Commit lint fixes (varsa)
-        run: |
-          git config user.name  "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          # Değişiklik yoksa bu adım sessizce geçer
-          if ! git diff --quiet; then
-            git add -A
-            git commit -m "style: auto-fix ruff lint [skip ci]"
-            git push
-          else
-            echo "Lint düzeltmesi gerekmedi."
-          fi
+      - name: 🔧 Install package in editable mode
+        run: pixi run pip install -e .
 
-      - name: Test
+      - name: 🧪 Run tests
         run: pixi run test
 
-  build-and-publish:
-    name: Build & Publish conda package
-    runs-on: ubuntu-latest
-    needs: test
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Update recipe version & sha256
-        run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          SHA256=$(curl -sL "https://pypi.org/packages/source/k/mlfp/mlfp-${VERSION}.tar.gz" | sha256sum | cut -d' ' -f1)
-          sed -i "s/^version: .*/version: \"${VERSION}\"/" recipe.yaml
-          sed -i "s/^sha256: .*/sha256: ${SHA256}/" recipe.yaml
-          echo "Version: $VERSION, SHA256: $SHA256"
-
-      - name: Build conda package
-        uses: prefix-dev/rattler-build-action@v0.2.39
-        with:
-          recipe-path: recipe.yaml    # ana dizin
-          build-args: >-
-            --target-platform linux-64
-            -c conda-forge
-            -c https://prefix.dev/conda-forge
-          upload-artifact: true
-          artifact-name: conda-package-linux-64
-
-      - name: Upload to prefix.dev
-        if: ${{ github.event.inputs.dry_run != 'true' }}
-        shell: bash
-        env:
-          PIXI_TOKEN: ${{ secrets.PIXI_TOKEN }}
-        run: |
-          for pkg in $(find output -type f \( -name "*.conda" -o -name "*.tar.bz2" \)); do
-            echo "Uploading: $pkg"
-            rattler-build upload prefix \
-              --channel bilgi/mlfp \
-              --api-key "$PIXI_TOKEN" \
-              "$pkg" || echo "Warning: duplicate, skipping"
-          done
-
-      - name: Dry run info
-        if: ${{ github.event.inputs.dry_run == 'true' }}
-        run: |
-          echo "=== DRY RUN — yükleme yapılmadı ==="
-          find output -type f \( -name "*.conda" -o -name "*.tar.bz2" \)
-
-  # ────────────────────────────────────────────────────────────
-  # JOB 3: PyPI'ya da yayınla (opsiyonel)
-  # ────────────────────────────────────────────────────────────
-  publish-pypi:
-    name: Publish to PyPI
-    runs-on: ubuntu-latest
-    needs: test
-    environment: pypi   # GitHub Environment ile koruma (opsiyonel)
-
-    permissions:
-      contents: read
-      id-token: write   # PyPI trusted publishing için
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Setup pixi
-        uses: prefix-dev/setup-pixi@v0.11.2
-        with:
-          pixi-version: v0.81.0
-          cache: false
-
       - name: 🏗️ Build package (wheel + sdist)
-        run: pixi run build  # python -m build → dist/ klasörüne yazar
+        run: pixi run build
         # Gerekiyorsa `build` görevini pixi.toml'da tanımlamış olmalısınız:
         # [tasks]
         # build = "python -m build"
