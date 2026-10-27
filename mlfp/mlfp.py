@@ -22,6 +22,21 @@ plus matrix-valued and fractional-BdG extensions.
 
 Compatible with Python 3.11-3.15.
 
+0.1.6 özellikleri (0.1.5'e göre)
+================================
+Bu sürüm, `FractionalQuantumChannel` sınıfının sayısal kararlılığını ve fiziksel doğruluğunu artıran kritik hata 
+düzeltmeleri ile yeni analitik doğrulama yetenekleri içermektedir.
+
+## Yeni Özellikler (New Features)
+
+- **T₁ (Genlik Sönümü) Kanalı Eklendi:** `FractionalAmplitudeDamping` sınıfı ve ilgili yardımcı fonksiyonlar 
+(`amplitude_damping_channel`, `local_amplitude_damping`) ile artık relaksasyon (T₁) süreçleri modellenebilir. 
+Bu sınıf, kesirli dinamik altında `γ(t) = 1 − E_{α,1}(−(t/T₁)^α)` formülünü kullanır.
+- **Kompozit Kanal Desteği:** `CompositeFractionalChannel` sınıfı ile T₁ ve T₂ etkileri (fenomenolojik olarak) sıralı 
+şekilde uygulanabilir hale getirildi.
+- mlfp kütüphanesinin Stratum mimarisi gibi karmaşık kuantum sistemlerinin modellenmesinde 
+daha güvenilir bir araç olmasını sağlar.
+
 0.1.5 özellikleri (0.1.4'e göre)
 ================================
 1. Parametrelere göre analitik türevler:
@@ -113,10 +128,14 @@ import cmath
 import functools
 import math
 from dataclasses import dataclass
-from typing import ClassVar, Final
-
+from matplotlib.colors import LogNorm
+from matplotlib.gridspec import GridSpec
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
+from typing import ClassVar, Final
+import scipy.linalg as la
+from scipy.linalg import eigh, eig
+import scipy.special as sp
 from scipy.special import (
     gamma as gamma_func,
     digamma,
@@ -124,12 +143,20 @@ from scipy.special import (
     rgamma,
     erfcx, poch
 )
-
+from scipy.optimize import brentq, curve_fit
 
 import mpmath as _mp
 # Not: global mp.dps DEĞİŞTİRİLMEZ. _mpmath_fallback kendi
 # workdps(dps) bağlamını kullanır; çağıran tarafın mpmath
 # hassasiyetini etkilemez.
+import warnings  # Sonunda 's' olmalı
+
+# Örnek Kullanım: Kodunuzdaki tüm uyarıları gizlemek için
+warnings.filterwarnings("ignore")
+
+# Örnek Kullanım: Özel bir uyarı tetiklemek için
+warnings.warn("Bu bir özel uyarı mesajıdır!")
+
 
 
 class MittagLefflerError(ValueError):
@@ -1249,6 +1276,16 @@ class MittagLeffler:
             f"max_series_terms={self.max_series_terms!r})"
         )
 
+# ----------------------------------------------------------------------------
+# Yardımcı doğrulayıcılar
+# ----------------------------------------------------------------------------
+def _is_diagonal(A: np.ndarray, tol: float = 1e-14) -> bool:
+    off = A - np.diag(np.diag(A))
+    return np.linalg.norm(off) < tol * max(1.0, np.linalg.norm(A))
+
+
+def _is_hermitian(A: np.ndarray, tol: float = 1e-10) -> bool:
+    return np.allclose(A, A.conj().T, atol=tol)
 
 # ---------------------------------------------------------------------------
 # Convenience function
@@ -1311,3 +1348,469 @@ def mittag_leffler(
         precision=precision,
     )
     return evaluator(z)
+
+
+# ----------------------------------------------------------------------------
+# 1) Prabhakar — skaler E^γ_{α,β}(z)
+# ----------------------------------------------------------------------------
+class Prabhakar:
+    r"""
+    E^γ_{α,β}(z) = Σ_{k=0}^∞  (γ)_k / (Γ(αk+β)·k!) · z^k
+
+    Sayısal kararlılık için:
+      • γ=0 özel durumu (yalnızca k=0 terimi)
+      • γ=1 ve büyük negatif |z| için asimptotik açılım (taşma önler)
+      • katsayı cache (time_series için ~50× hız)
+    """
+    _ASYMPTOTIC_THRESHOLD = 30.0
+
+    def __init__(self, alpha: float, beta: float = 1.0,
+                 gamma_p: float = 1.0, tolerance: float = 1e-14):
+        if alpha <= 0 or beta <= 0 or gamma_p < 0:
+            raise ValueError("α > 0, β > 0, γ ≥ 0 gerekir")
+        self.alpha = float(alpha)
+        self.beta = float(beta)
+        self.gamma_p = float(gamma_p)
+        self.tol = float(tolerance)
+        self._coef_cache: dict[int, float] = {}
+
+    # ------------------------------------------------------------------
+    def coef(self, k: int) -> float:
+        """k. katsayı — cache'li, γ özel durumlarını doğru işler."""
+        if k in self._coef_cache:
+            return self._coef_cache[k]
+
+        if self.gamma_p == 0.0:
+            # (0)_0 = 1,  (0)_k = 0 (k≥1)  →  E^0_{α,β}(z) = 1/Γ(β)
+            v = (1.0 / float(np.exp(gammaln(self.beta)))) if k == 0 else 0.0
+        elif self.gamma_p == 1.0:
+            v = float(np.exp(-gammaln(self.alpha * k + self.beta)))
+        else:
+            log_num = gammaln(self.gamma_p + k) - gammaln(self.gamma_p)
+            log_den = gammaln(self.alpha * k + self.beta) + gammaln(k + 1.0)
+            v = float(np.exp(log_num - log_den))
+
+        self._coef_cache[k] = v
+        return v
+
+    # ------------------------------------------------------------------
+    def _asymptotic_neg_real(self, z: complex, N: int = 8) -> complex:
+        r"""
+        Re(z)<0, |z|→∞ için asimptotik:
+            E_{α,β}(z) ≈ −Σ_{n=1}^N z^{−n} / Γ(β−αn)
+        (Podlubny / Gorenflo-Mainardi formülü, γ=1 durumu)
+        """
+        total = 0j
+        for n in range(1, N + 1):
+            denom = self.beta - self.alpha * n
+            # Γ(non-positive integer) = ∞ → terim atla
+            if denom <= 0 and abs(denom - round(denom)) < 1e-10:
+                continue
+            if abs(denom) < 1e-10:
+                continue
+            g = float(np.exp(gammaln(denom)))
+            total -= (z ** (-n)) / g
+        return total
+
+    # ------------------------------------------------------------------
+    def evaluate(self, z: complex, max_terms: int = 800,
+                 min_terms: int = 8) -> complex:
+        z = complex(z)
+
+        # γ=1 ve büyük negatif argüman → asimptotik (taşma önler)
+        if (self.gamma_p == 1.0
+                and np.real(z) < 0
+                and abs(z) > self._ASYMPTOTIC_THRESHOLD):
+            return self._asymptotic_neg_real(z)
+
+        total = 0j
+        z_pow = 1 + 0j
+        for k in range(max_terms):
+            term = self.coef(k) * z_pow
+            total += term
+            if k >= min_terms and abs(term) < self.tol * max(1.0, abs(total)):
+                return total
+            z_pow *= z
+
+        warnings.warn(f"Prabhakar: {max_terms} terimde yakınsamadı (z={z})")
+        return total
+
+    def evaluate_real(self, x: float, **kw) -> float:
+        return float(np.real(self.evaluate(x, **kw)))
+
+
+# ----------------------------------------------------------------------------
+# 2) MatrixMittagLeffler — E^γ_{α,β}(A)
+# ----------------------------------------------------------------------------
+class MatrixMittagLeffler:
+    r"""
+    Matris Mittag-Leffler / Prabhakar fonksiyonu E^γ_{α,β}(A).
+
+    Hesaplama stratejisi (otomatik seçim)
+    -------------------------------------
+    1. A diyagonal        → köşegen skaler eval (O(n) — en hızlı)
+    2. A Hermitian        → eigh + köşegen skaler eval (spektral doğru)
+    3. A genel            → Pochhammer serisi + yakınsama kontrolü
+
+    Not
+    ---
+    Fiziksel kanal uygulamalarında `A` genelde diyagonal veya Hermitian
+    (dekoherans jeneratörü) olur → 1. veya 2. yol devreye girer ve
+    matris çarpımı yapılmaz. Bu, `time_series` için kritik optimizasyondur.
+    """
+
+    def __init__(self, alpha: float, beta: float = 1.0,
+                 gamma_p: float = 1.0, tolerance: float = 1e-13):
+        self._scalar = Prabhakar(alpha, beta, gamma_p, tolerance)
+        self.alpha, self.beta, self.gamma_p = alpha, beta, gamma_p
+        self.tol = tolerance
+
+    def evaluate(self, A: np.ndarray, max_terms: int = 200) -> np.ndarray:
+        A = np.asarray(A, dtype=complex)
+        if A.ndim != 2 or A.shape[0] != A.shape[1]:
+            raise ValueError("A kare matris olmalı")
+        if _is_diagonal(A):
+            return self._via_diag(A)
+        if _is_hermitian(A):
+            return self._via_eig(A)
+        return self._via_series(A, max_terms)
+
+    # --- strateji 1: diyagonal ---
+    def _via_diag(self, A):
+        diag = np.diag(A)
+        f_diag = np.array([self._scalar.evaluate(v) for v in diag])
+        return np.diag(f_diag)
+
+    # --- strateji 2: Hermitian ---
+    def _via_eig(self, A):
+        vals, vecs = eigh(A)
+        f_vals = np.array([self._scalar.evaluate(v) for v in vals])
+        return vecs @ np.diag(f_vals) @ vecs.conj().T
+
+    # --- strateji 3: seri ---
+    def _via_series(self, A, max_terms):
+        n = A.shape[0]
+        res = np.zeros((n, n), dtype=complex)
+        A_pow = np.eye(n, dtype=complex)
+        for k in range(max_terms):
+            term = self._scalar.coef(k) * A_pow
+            res += term
+            if k >= 8 and np.linalg.norm(term, 'fro') < \
+                    self.tol * max(1.0, np.linalg.norm(res, 'fro')):
+                return res
+            A_pow = A_pow @ A
+        warnings.warn(
+            f"MatrixMittagLeffler: {max_terms} terimde yakınsamadı")
+        return res
+
+
+# mlfp.py içindeki mevcut FractionalQuantumChannel'ı BUNUNLA DEĞİŞTİR
+
+class FractionalQuantumChannel:
+    r"""
+    Kesirli koherans altında 2-qubit kuantum kanalı.
+
+    Model
+    -----
+        ρ(t) = K₀ ρ₀ K₀† + K₁ ρ₀ K₁†
+        K₀(t) = E^γ_{α,β}( s · G ),   s = (t/τ)^α
+        K₁(t) = √(I − K₀† K₀)
+
+    Konvansiyon
+    -----------
+    G **negatif-tanımlı** dekoherans jeneratörüdür (fizikçi standardı):
+        özdeğerler(G) ≤ 0  →  s·G negatif argüman
+        →  E_{α,β}(s·G) azalır  →  |K₀| ≤ 1  →  Kraus geçerli
+
+    G pozitif verilirse `_ensure_negative_generator` uyarı basar ve
+    otomatik olarak işaretini çevirir (−G).
+    """
+
+    def __init__(self, alpha: float, beta: float = 1.0,
+                 gamma_p: float = 1.0, tolerance: float = 1e-12):
+        self.alpha = float(alpha)
+        self.beta = float(beta)
+        self.gamma_p = float(gamma_p)
+        self._scalar = Prabhakar(alpha, beta, gamma_p, tolerance)
+        self._matrix = MatrixMittagLeffler(alpha, beta, gamma_p, tolerance)
+
+    # ------------------------------------------------------------------
+    # Generator doğrulama (G'nin her kullanımdan önce çağrılır)
+    # ------------------------------------------------------------------
+    def _ensure_negative_generator(self, G) -> np.ndarray:
+        G = np.asarray(G, dtype=complex)
+        if G.ndim != 2 or G.shape[0] != G.shape[1]:
+            raise ValueError("G kare matris olmalı")
+        if np.allclose(G, G.conj().T, atol=1e-10):
+            eigs = np.linalg.eigvalsh(G)
+        else:
+            eigs = np.real(np.linalg.eigvals(G))
+        max_eig = float(np.max(eigs))
+        if max_eig > 1e-8:
+            warnings.warn(
+                f"G pozitif özdeğerli (max={max_eig:.3f}); "
+                f"dekoherans jeneratörü negatif olmalı. "
+                f"Otomatik düzeltildi (G → −G).")
+            return -G
+        return G
+
+    # ------------------------------------------------------------------
+    # Skaler metrikler
+    # ------------------------------------------------------------------
+    def coherence(self, t: float, tau: float = 1.0) -> float:
+        x = (t / tau) ** self.alpha
+        return float(np.clip(self._scalar.evaluate_real(-x), 0.0, 1.0))
+
+    def teleportation_fidelity(self, t: float, tau: float = 1.0) -> float:
+        return 0.5 + 0.5 * self.coherence(t, tau)
+
+    # ------------------------------------------------------------------
+    # Kraus operatörleri
+    # ------------------------------------------------------------------
+    def kraus_k0(self, generator, t: float, tau: float = 1.0) -> np.ndarray:
+        G = self._ensure_negative_generator(generator)
+        s = (t / tau) ** self.alpha
+        return self._matrix.evaluate(s * G)
+
+    def evolve_state(self, rho0: np.ndarray, generator,
+                     t: float, tau: float = 1.0,
+                     check_kraus: bool = True,
+                     trace_tol: float = 1e-8) -> np.ndarray:
+        K0 = self.kraus_k0(generator, t, tau)
+        n = K0.shape[0]
+        I = np.eye(n, dtype=complex)
+        rem = I - K0.conj().T @ K0
+
+        if check_kraus:
+            eigs = np.linalg.eigvalsh(rem)
+            if eigs.min() < -1e-8:
+                warnings.warn(
+                    f"Kraus tamamlayıcısı geçersiz: min özdeğer "
+                    f"{eigs.min():.2e} — generator veya MLF yakınsaması")
+
+        vals, vecs = eigh(rem)
+        vals = np.clip(vals, 0.0, None)
+        K1 = vecs @ np.diag(np.sqrt(vals)) @ vecs.conj().T
+
+        rho_t = K0 @ rho0 @ K0.conj().T + K1 @ rho0 @ K1.conj().T
+        tr = np.real(np.trace(rho_t))
+        if abs(tr - 1.0) > trace_tol:
+            warnings.warn(f"İz sapması: |tr(ρ)−1| = {abs(tr-1):.2e}")
+            rho_t = rho_t / tr
+        return rho_t
+
+    @staticmethod
+    def von_neumann_entropy(rho: np.ndarray) -> float:
+        vals = np.real(np.linalg.eigvalsh(rho))
+        vals = vals[vals > 1e-15]
+        return float(-np.sum(vals * np.log2(vals)))
+
+    # ------------------------------------------------------------------
+    # Zaman serisi — diyagonal jeneratörde vektörel hızlı yol
+    # ------------------------------------------------------------------
+    def time_series(self, generator, times, rho0: np.ndarray,
+                    tau: float = 1.0) -> list[np.ndarray]:
+        G = self._ensure_negative_generator(generator)
+
+        if _is_diagonal(G):
+            diag = np.diag(G)
+            results = []
+            for t in times:
+                s = (t / tau) ** self.alpha
+                k0_diag = np.array([self._scalar.evaluate(s * g) for g in diag])
+                K0 = np.diag(k0_diag)
+                rem_diag = np.clip(1.0 - np.abs(k0_diag) ** 2, 0.0, None)
+                K1 = np.diag(np.sqrt(rem_diag))
+                rho_t = K0 @ rho0 @ K0.conj().T + K1 @ rho0 @ K1.conj().T
+                results.append(rho_t / np.real(np.trace(rho_t)))
+            return results
+
+        return [self.evolve_state(rho0, G, t, tau) for t in times]
+
+# ============================================================================
+# mlfp.py — T₁ (genlik sönümü) EKLENTİSİ
+# ============================================================================
+
+# ----------------------------------------------------------------------------
+# Katman 1: Saf Kraus fonksiyonları (sabit γ)
+# ----------------------------------------------------------------------------
+def amplitude_damping_kraus(gamma: float) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Tek kubit T₁ için Kraus operatörleri.
+
+        K₀ = [[1, 0], [0, √(1-γ)]]     K₁ = [[0, √γ], [0, 0]]
+
+    γ ∈ [0,1]:  uyarımın |1⟩ → |0⟩ bozunma olasılığı.
+    γ=0 → özdeşlik;  γ=1 → tam relaksasyon.
+    """
+    g = float(np.clip(gamma, 0.0, 1.0))
+    K0 = np.array([[1.0, 0.0],
+                   [0.0, np.sqrt(1.0 - g)]], dtype=complex)
+    K1 = np.array([[0.0, np.sqrt(g)],
+                   [0.0, 0.0]], dtype=complex)
+    return K0, K1
+
+
+def amplitude_damping_channel(rho: np.ndarray, gamma: float) -> np.ndarray:
+    """Tek kubit T₁ kanalı: ρ' = K₀ρK₀† + K₁ρK₁†."""
+    K0, K1 = amplitude_damping_kraus(gamma)
+    return K0 @ rho @ K0.conj().T + K1 @ rho @ K1.conj().T
+
+
+def local_amplitude_damping(rho: np.ndarray, gamma: float,
+                            qubit: int = 0) -> np.ndarray:
+    """2-qubit durumda **tek** kübite T₁, diğeri özdeşlik."""
+    I2 = np.eye(2, dtype=complex)
+    K0, K1 = amplitude_damping_kraus(gamma)
+    if qubit == 0:
+        A0, A1 = np.kron(K0, I2), np.kron(K1, I2)
+    elif qubit == 1:
+        A0, A1 = np.kron(I2, K0), np.kron(I2, K1)
+    else:
+        raise ValueError("qubit ∈ {0, 1}")
+    return A0 @ rho @ A0.conj().T + A1 @ rho @ A1.conj().T
+
+
+def two_qubit_amplitude_damping(rho: np.ndarray,
+                                gamma0: float, gamma1: float) -> np.ndarray:
+    """Her iki kübite **paralel** T₁ (4 Kraus terimi)."""
+    K0_0, K1_0 = amplitude_damping_kraus(gamma0)
+    K0_1, K1_1 = amplitude_damping_kraus(gamma1)
+    kraus_ops = [
+        np.kron(K0_0, K0_1),
+        np.kron(K0_0, K1_1),
+        np.kron(K1_0, K0_1),
+        np.kron(K1_0, K1_1),
+    ]
+    result = np.zeros_like(rho)
+    for K in kraus_ops:
+        result += K @ rho @ K.conj().T
+    return result
+
+
+# ----------------------------------------------------------------------------
+# Katman 2: Kesirli T₁ — γ(t) = 1 − E_{α,1}(−(t/T₁)^α)
+# ----------------------------------------------------------------------------
+class FractionalAmplitudeDamping:
+    """
+    T₁ (genlik sönümü) — kesirli dinamik.
+
+    Klasik limit  (α=1):  γ(t) = 1 − exp(−t/T₁)
+    Kesirli               :  γ(t) = 1 − E_{α,1}(−(t/T₁)^α)
+
+    `FractionalQuantumChannel` ile aynı α kullanıldığında T₁ ve T₂
+    **fiziksel olarak tutarlı** kesirli rejimde olur.
+
+    Parameters
+    ----------
+    alpha : float
+        Kesirli dinamik mertebesi (α > 0).
+    T1 : float
+        Relaksasyon süresi (saniye).
+    tolerance : float
+        Prabhakar yakınsama toleransı.
+    """
+
+    def __init__(self, alpha: float, T1: float, tolerance: float = 1e-13):
+        if alpha <= 0 or T1 <= 0:
+            raise ValueError("α > 0, T₁ > 0 gerekir")
+        self.alpha = float(alpha)
+        self.T1 = float(T1)
+        self._ml = Prabhakar(alpha, 1.0, 1.0, tolerance)
+
+    def gamma(self, t: float) -> float:
+        """γ(t) ∈ [0,1] — uyarım bozunma olasılığı."""
+        if t <= 0:
+            return 0.0
+        s = (t / self.T1) ** self.alpha
+        ml_val = self._ml.evaluate_real(-s)
+        return float(np.clip(1.0 - ml_val, 0.0, 1.0))
+
+    def apply(self, rho: np.ndarray, t: float,
+              qubit: int | None = None) -> np.ndarray:
+        """
+        ρ'u T₁ kanalından geçir.
+
+        qubit=None → 2-qubit simetrik (her iki kübite aynı γ)
+        qubit=0/1  → 2-qubit'te yalnızca bir kübite
+        (ρ boyutu 2×2 ise qubit argümanı yoksayılır.)
+        """
+        g = self.gamma(t)
+        if rho.shape == (2, 2):
+            return amplitude_damping_channel(rho, g)
+        elif rho.shape == (4, 4):
+            if qubit is None:
+                return two_qubit_amplitude_damping(rho, g, g)
+            return local_amplitude_damping(rho, g, qubit)
+        raise ValueError(
+            f"ρ boyutu (2,2) veya (4,4) olmalı, {rho.shape} verildi")
+
+
+# ----------------------------------------------------------------------------
+# Katman 3 (opsiyonel): T₁ ∘ T₂ kompozit kanal
+# ----------------------------------------------------------------------------
+class CompositeFractionalChannel:
+    """
+    T₂ (dephase) + T₁ (relaksasyon) birlikte.
+
+        ρ(t) = T₁( T₂( ρ₀, t ), t )
+
+    Uyarı
+    -----
+    Sıralı uygulama **fenomenolojik** bir yaklaşımdır; T₁ ve T₂ kesirli
+    rejimde genel olarak komüt etmez. Fiziksel olarak doğru Kraus
+    çiftini elde etmek için birleşik jeneratör gerekir. Bu sınıf,
+    "T₂ önce, T₁ sonra" yaklaşımını kolaylaştırır — sadece gösterim
+    ve karşılaştırma amaçlıdır.
+
+    Parameters
+    ----------
+    alpha : float
+        Ortak kesirli mertebe.
+    G : np.ndarray
+        Dekoherans jeneratörü (T₂ için, köşegen).
+    T1 : float
+        Relaksasyon süresi.
+    """
+
+    def __init__(self, alpha: float, G: np.ndarray, T1: float):
+        self.t2 = FractionalQuantumChannel(alpha)
+        self.t1 = FractionalAmplitudeDamping(alpha, T1)
+        self.G = np.asarray(G, dtype=complex)
+
+    def evolve(self, rho0: np.ndarray, t: float) -> np.ndarray:
+        if t <= 0:
+            return rho0.copy()
+        rho_t = self.t2.evolve_state(rho0, self.G, t)
+        return self.t1.apply(rho_t, t)
+
+    def time_series(self, rho0: np.ndarray, times) -> list[np.ndarray]:
+        return [self.evolve(rho0, t) for t in times]
+
+# Test 1 — α=1, β=1, γ=1 → exp(z)
+p = Prabhakar(1.0, 1.0, 1.0)
+assert abs(p.evaluate(-2.0) - np.exp(-2.0)) < 1e-10
+
+# Test 2 — MatrixMittagLeffler, diyagonal → skalerle aynı
+M = MatrixMittagLeffler(0.5, 1.0, 1.0)
+A = np.diag([-1.0, -2.0, -3.0])
+R = M.evaluate(A)
+for i, lam in enumerate([-1, -2, -3]):
+    s = Prabhakar(0.5, 1.0, 1.0).evaluate(lam)
+    assert abs(R[i, i] - s) < 1e-10
+
+# Test 3 — Kraus iz koruma
+ch = FractionalQuantumChannel(0.3)
+rho = np.eye(4, dtype=complex) / 4
+G = np.diag([0.0, -0.6, -0.6, -0.8]).astype(complex)
+rho_t = ch.evolve_state(rho, G, t=2.0, check_kraus=True)  # uyarı OLMAMALI
+assert abs(np.trace(rho_t) - 1.0) < 1e-8
+
+# Test 4 — time_series == döngüsel evolve_state
+rho_a = ch.evolve_state(rho, G, t=1.5)
+rho_b = ch.time_series(G, np.array([1.5]), rho)[0]
+assert np.allclose(rho_a, rho_b, atol=1e-10)
+
+# mlfp.py'nin sonuna ekle
+if __name__ == "__main__":
+    run_all_tests(verbose=True)
