@@ -22,9 +22,9 @@ Mittag-Leffler ve Prabhakar fonksiyonlarının hesaplanması.
 Compatible with Python 3.11-3.15.
 """
 
-__version__ = "0.1.5"
+__version__ = "0.1.6"
 __author__ = "Mehmet Keçeci"
-__main__ = "0.1.5"
+__main__ = "0.1.6"
 
 from .mlfp import (
     # Temel eğri sınıfları
@@ -40,6 +40,18 @@ from .mlfp import (
     _reduced_evaluator,
     derivative,
     _normalize_param,
+    FractionalQuantumChannel,
+    MatrixMittagLeffler,
+    Prabhakar,
+    _is_diagonal,
+    _is_hermitian,
+    CompositeFractionalChannel,
+    FractionalAmplitudeDamping,
+    two_qubit_amplitude_damping,
+    local_amplitude_damping,
+    amplitude_damping_channel,
+    amplitude_damping_kraus,
+
 )
 
 from mlfp.mlfp_matrix import (
@@ -77,5 +89,16 @@ __all__ = [
     "bdg_spectrum",
     "find_majorana_modes",
     "majorana_localization",
+    "FractionalQuantumChannel",
+    "MatrixMittagLeffler",
+    "Prabhakar",
+    "_is_diagonal",
+    "_is_hermitian",
+    "CompositeFractionalChannel",
+    "FractionalAmplitudeDamping",
+    "two_qubit_amplitude_damping",
+    "local_amplitude_damping",
+    "amplitude_damping_channel",
+    "amplitude_damping_kraus",
 
 ]
