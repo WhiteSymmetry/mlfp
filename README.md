@@ -606,6 +606,16 @@ ile dinamik olarak belirlenerek `mpmath` ile hesaplanır. Bu, küçük $\alpha$ 
 
 ## Sürüm Geçmişi
 
+0.1.6 özellikleri (0.1.5'e göre)
+================================
+1. **T₁ (Genlik Sönümü) Kanalı Eklendi:** `FractionalAmplitudeDamping` sınıfı ve ilgili yardımcı fonksiyonlar 
+(`amplitude_damping_channel`, `local_amplitude_damping`) ile artık relaksasyon (T₁) süreçleri modellenebilir. 
+Bu sınıf, kesirli dinamik altında `γ(t) = 1 − E_{α,1}(−(t/T₁)^α)` formülünü kullanır.
+2. **Kompozit Kanal Desteği:** `CompositeFractionalChannel` sınıfı ile T₁ ve T₂ etkileri (fenomenolojik olarak) sıralı 
+şekilde uygulanabilir hale getirildi.
+- mlfp kütüphanesinin Stratum mimarisi gibi karmaşık kuantum sistemlerinin modellenmesinde 
+daha güvenilir bir araç olmasını sağlar.
+
 0.1.5 özellikleri (0.1.4'e göre)
 ================================
 1. Parametrelere göre analitik türevler:
