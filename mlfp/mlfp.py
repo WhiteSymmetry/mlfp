@@ -24,15 +24,10 @@ Compatible with Python 3.11-3.15.
 
 0.1.6 özellikleri (0.1.5'e göre)
 ================================
-Bu sürüm, `FractionalQuantumChannel` sınıfının sayısal kararlılığını ve fiziksel doğruluğunu artıran kritik hata 
-düzeltmeleri ile yeni analitik doğrulama yetenekleri içermektedir.
-
-## Yeni Özellikler (New Features)
-
-- **T₁ (Genlik Sönümü) Kanalı Eklendi:** `FractionalAmplitudeDamping` sınıfı ve ilgili yardımcı fonksiyonlar 
+1. **T₁ (Genlik Sönümü) Kanalı Eklendi:** `FractionalAmplitudeDamping` sınıfı ve ilgili yardımcı fonksiyonlar 
 (`amplitude_damping_channel`, `local_amplitude_damping`) ile artık relaksasyon (T₁) süreçleri modellenebilir. 
 Bu sınıf, kesirli dinamik altında `γ(t) = 1 − E_{α,1}(−(t/T₁)^α)` formülünü kullanır.
-- **Kompozit Kanal Desteği:** `CompositeFractionalChannel` sınıfı ile T₁ ve T₂ etkileri (fenomenolojik olarak) sıralı 
+2. **Kompozit Kanal Desteği:** `CompositeFractionalChannel` sınıfı ile T₁ ve T₂ etkileri (fenomenolojik olarak) sıralı 
 şekilde uygulanabilir hale getirildi.
 - mlfp kütüphanesinin Stratum mimarisi gibi karmaşık kuantum sistemlerinin modellenmesinde 
 daha güvenilir bir araç olmasını sağlar.
