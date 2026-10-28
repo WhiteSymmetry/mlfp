@@ -4,11 +4,11 @@ authors = ["Mehmet Keçeci <enfo@tuta.io>"]
 channels = ["https://prefix.dev/bilgi", "bilgi", "pypi", "https://prefix.dev/conda-forge", "https://conda.modular.com/max-nightly", "conda-forge", "https://repo.prefix.dev/modular-community"]
 platforms = ["linux-64", "osx-arm64", "osx-64"]
 name = "mlfp"
-version = "0.1.6"
+version = "0.1.7"
 
 [package]
 name = "mlfp"
-version = "0.1.6"
+version = "0.1.7"
 license = "MIT"
 
 [dependencies]
@@ -23,6 +23,7 @@ matplotlib = ">=3.11.0"
 pytest = ">=8.0"
 ruff = ">=0.9.0"
 mpmath = "*" 
+pfapack = "*"
 
 [tasks]
 build = "python -m build"
