@@ -153,7 +153,6 @@ from scipy.special import (
 )
 from scipy.optimize import brentq, curve_fit
 from pfapack import pfaffian
-#from scipy.linalg import pfaffian
 
 try:
     import scipy.special as special
