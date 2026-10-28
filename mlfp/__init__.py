@@ -22,9 +22,9 @@ Mittag-Leffler ve Prabhakar fonksiyonlarının hesaplanması.
 Compatible with Python 3.11-3.15.
 """
 
-__version__ = "0.1.7"
+__version__ = "0.1.8"
 __author__ = "Mehmet Keçeci"
-__main__ = "0.1.7"
+__main__ = "0.1.8"
 
 from .mlfp import (
     # Temel eğri sınıfları
@@ -66,7 +66,6 @@ from .mlfp import (
     _evaluate_with_kwargs,
     SparseHermitianMatrixMittagLeffler,
     NV_hamiltonian,
-    kitaev_chain,
     build_surface_code_hamiltonian,
     topological_invariant,
     FractionalLindbladianProcess,
