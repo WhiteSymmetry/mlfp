@@ -2064,12 +2064,12 @@ class Prabhakar:
     _ASYMPTOTIC_THRESHOLD = 30.0
 
     def __init__(self, alpha: float, beta: float = 1.0,
-                 gamma_p: float = 1.0, tolerance: float = 1e-14):
-        if alpha <= 0 or beta <= 0 or gamma_p < 0:
+                 gamma: float = 1.0, tolerance: float = 1e-14):
+        if alpha <= 0 or beta <= 0 or gamma < 0:
             raise ValueError("α > 0, β > 0, γ ≥ 0 gerekir")
         self.alpha = float(alpha)
         self.beta = float(beta)
-        self.gamma_p = float(gamma_p)
+        self.gamma = float(gamma)
         self.tol = float(tolerance)
         self._coef_cache: dict[int, float] = {}
 
@@ -2079,13 +2079,13 @@ class Prabhakar:
         if k in self._coef_cache:
             return self._coef_cache[k]
 
-        if self.gamma_p == 0.0:
+        if self.gamma == 0.0:
             # (0)_0 = 1,  (0)_k = 0 (k≥1)  →  E^0_{α,β}(z) = 1/Γ(β)
             v = (1.0 / float(np.exp(gammaln(self.beta)))) if k == 0 else 0.0
-        elif self.gamma_p == 1.0:
+        elif self.gamma == 1.0:
             v = float(np.exp(-gammaln(self.alpha * k + self.beta)))
         else:
-            log_num = gammaln(self.gamma_p + k) - gammaln(self.gamma_p)
+            log_num = gammaln(self.gamma + k) - gammaln(self.gamma)
             log_den = gammaln(self.alpha * k + self.beta) + gammaln(k + 1.0)
             v = float(np.exp(log_num - log_den))
 
@@ -2117,7 +2117,7 @@ class Prabhakar:
         z = complex(z)
 
         # γ=1 ve büyük negatif argüman → asimptotik (taşma önler)
-        if (self.gamma_p == 1.0
+        if (self.gamma == 1.0
                 and np.real(z) < 0
                 and abs(z) > self._ASYMPTOTIC_THRESHOLD):
             return self._asymptotic_neg_real(z)
@@ -2158,9 +2158,9 @@ class MatrixMittagLeffler:
     """
 
     def __init__(self, alpha: float, beta: float = 1.0,
-                 gamma_p: float = 1.0, tolerance: float = 1e-13):
-        self._scalar = Prabhakar(alpha, beta, gamma_p, tolerance)
-        self.alpha, self.beta, self.gamma_p = alpha, beta, gamma_p
+                 gamma: float = 1.0, tolerance: float = 1e-13):
+        self._scalar = Prabhakar(alpha, beta, gamma, tolerance)
+        self.alpha, self.beta, self.gamma = alpha, beta, gamma
         self.tol = tolerance
 
     def evaluate(self, A, max_terms: int = 200, sparse_output: bool = False):
@@ -2249,12 +2249,12 @@ class FractionalQuantumChannel:
     """
 
     def __init__(self, alpha: float, beta: float = 1.0,
-                 gamma_p: float = 1.0, tolerance: float = 1e-12):
+                 gamma: float = 1.0, tolerance: float = 1e-12):
         self.alpha = float(alpha)
         self.beta = float(beta)
-        self.gamma_p = float(gamma_p)
-        self._scalar = Prabhakar(alpha, beta, gamma_p, tolerance)
-        self._matrix = MatrixMittagLeffler(alpha, beta, gamma_p, tolerance)
+        self.gamma = float(gamma)
+        self._scalar = Prabhakar(alpha, beta, gamma, tolerance)
+        self._matrix = MatrixMittagLeffler(alpha, beta, gamma, tolerance)
 
     # ------------------------------------------------------------------
     # Generator doğrulama (G'nin her kullanımdan önce çağrılır)
@@ -3162,7 +3162,7 @@ def time_process(
     t_array,
     alpha: float = 1.0,
     beta: float = 1.0,
-    gamma_p: float = 1.0,
+    gamma: float = 1.0,
     tolerance: float = 1e-13,
     max_terms: int = 200,
     sparse_output: bool = False,
@@ -3204,7 +3204,7 @@ def time_process(
         mml = SparseHermitianMatrixMittagLeffler(
             alpha=alpha,
             beta=beta,
-            gamma_p=gamma_p,
+            gamma=gamma,
             tolerance=tolerance,
         )
 
@@ -3529,7 +3529,7 @@ def fast_diagonal_process(
     t_array,
     alpha: float = 1.0,
     beta: float = 1.0,
-    gamma_p: float = 1.0,
+    gamma: float = 1.0,
 ):
     """
     Diagonal jeneratör için MATRİS ÜRETMEDEN süreç hesaplar.
@@ -3554,7 +3554,7 @@ def fast_diagonal_process(
     t_array = np.atleast_1d(np.asarray(t_array, dtype=float))
     
     mml = MatrixMittagLeffler(
-        alpha=alpha, beta=beta, gamma_p=gamma_p, tolerance=1e-13
+        alpha=alpha, beta=beta, gamma=gamma, tolerance=1e-13
     )
     
     M = len(t_array)
@@ -3587,13 +3587,13 @@ class FractionalLindbladianProcess:
     α > 1.0 → üst-dağılımlı (superdiffusive) dinamik
     """
 
-    def __init__(self, H, jump_operators=None, gammas=None, alpha: float = 1.0, beta: float = 1.0, gamma_p: float = 1.0):
+    def __init__(self, H, jump_operators=None, gammas=None, alpha: float = 1.0, beta: float = 1.0, gamma: float = 1.0):
         self.H = H
         self.jump_operators = jump_operators
         self.gammas = gammas
         self.alpha = alpha
         self.beta = beta
-        self.gamma_p = gamma_p
+        self.gamma = gamma
         
         N = H.shape[0]
         self.dim = N
@@ -3601,7 +3601,7 @@ class FractionalLindbladianProcess:
         # Süperoperatörü inşa et
         self.L_super = build_lindbladian(H, jump_operators, gammas)
         
-        self.mml = MatrixMittagLeffler(alpha=alpha, beta=beta, gamma_p=gamma_p, tolerance=1e-13)
+        self.mml = MatrixMittagLeffler(alpha=alpha, beta=beta, gamma=gamma, tolerance=1e-13)
         
         # KARARLILIK İÇİN: L_super'ü bir kez dense'e çevir ve özdeğerlerine ayır
         # (64x64 veya 400x400 için bu işlem milisaniyeler sürer ve çok kararlıdır)
