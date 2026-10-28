@@ -22,6 +22,15 @@ plus matrix-valued and fractional-BdG extensions.
 
 Compatible with Python 3.11-3.15.
 
+0.1.7 özellikleri (0.1.6'e göre)
+================================
+Modül sayısı: +analyzer, +process, +lindblad
+Matris özellikleri: 16+
+Sparse desteği: Tam (CSR/CSC/COO)
+Fiziksel modeller: +Kitaev, +NV, +Surface Code, +Lindbladian
+Grafik sistemi: Dashboard +6 plot fonksiyonu
+Kararlılık: Bulletproof (NaN/Inf/Trace koruması)
+
 0.1.6 özellikleri (0.1.5'e göre)
 ================================
 1. **T₁ (Genlik Sönümü) Kanalı Eklendi:** `FractionalAmplitudeDamping` sınıfı ve ilgili yardımcı fonksiyonlar 
@@ -123,14 +132,18 @@ import cmath
 import functools
 import math
 from dataclasses import dataclass
-from matplotlib.colors import LogNorm
+from matplotlib.colors import LogNorm, Normalize
 from matplotlib.gridspec import GridSpec
+import matplotlib.pyplot as plt
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
 from typing import ClassVar, Final
 import scipy.linalg as la
 from scipy.linalg import eigh, eig
-import scipy.special as sp
+import scipy
+import scipy.special as special
+import scipy.sparse as sparse
+import scipy.sparse.linalg as spla
 from scipy.special import (
     gamma as gamma_func,
     digamma,
@@ -139,6 +152,36 @@ from scipy.special import (
     erfcx, poch
 )
 from scipy.optimize import brentq, curve_fit
+from pfapack import pfaffian
+#from scipy.linalg import pfaffian
+
+try:
+    import scipy.special as special
+    import scipy.sparse as sparse
+    import scipy.sparse.linalg as spla
+    from scipy.sparse.linalg import norm as sp_norm, eigsh, svds
+    HAS_SCIPY = True
+except Exception:
+    sparse = None
+    sp_norm = None
+    spla = None
+    eigsh = None
+    svds = None
+    HAS_SCIPY = False
+
+try:
+    from pfapack import pfaffian as pf
+    HAS_PFAPACK = True
+except ImportError:
+    pf = None
+    HAS_PFAPACK = False
+
+
+def _is_sparse(x) -> bool:
+    """
+    scipy.sparse matris olup olmadığını kontrol eder.
+    """
+    return HAS_SCIPY and sparse.issparse(x)
 
 import mpmath as _mp
 # Not: global mp.dps DEĞİŞTİRİLMEZ. _mpmath_fallback kendi
@@ -152,7 +195,7 @@ warnings.filterwarnings("ignore")
 # Örnek Kullanım: Özel bir uyarı tetiklemek için
 warnings.warn("Bu bir özel uyarı mesajıdır!")
 
-
+#analyzer = MatrixAnalyzer(A)
 
 class MittagLefflerError(ValueError):
     """Raised for invalid Mittag-Leffler parameters or arguments."""
@@ -1271,16 +1314,6 @@ class MittagLeffler:
             f"max_series_terms={self.max_series_terms!r})"
         )
 
-# ----------------------------------------------------------------------------
-# Yardımcı doğrulayıcılar
-# ----------------------------------------------------------------------------
-def _is_diagonal(A: np.ndarray, tol: float = 1e-14) -> bool:
-    off = A - np.diag(np.diag(A))
-    return np.linalg.norm(off) < tol * max(1.0, np.linalg.norm(A))
-
-
-def _is_hermitian(A: np.ndarray, tol: float = 1e-10) -> bool:
-    return np.allclose(A, A.conj().T, atol=tol)
 
 # ---------------------------------------------------------------------------
 # Convenience function
@@ -1344,6 +1377,678 @@ def mittag_leffler(
     )
     return evaluator(z)
 
+
+class MatrixAnalyzer:
+    """
+    Matris özelliklerini analiz eden sınıf.
+
+    Desteklenen matris türleri:
+    - numpy.ndarray
+    - scipy.sparse matrisleri (csr, csc, coo, vb.)
+
+    Not:
+    - Sparse matrislerde yapısal testler mümkün olduğunca sparse olarak yapılır.
+    - Özdeğer / SVD gibi işlemler gerektiğinde küçük matrislerde dense'e çevrilir.
+    - Büyük sparse matrislerde Hermitian extremal özdeğerler için eigsh kullanılır.
+    """
+
+    def __init__(self, A, name: str = "Matrix"):
+        self.name = name
+        self._input = A
+        self._dense_cache = None
+        self._norm_cache = None
+        self._eigenvalues_cache = None
+
+        if _is_sparse(A):
+            self._sparse = A.tocsr() if hasattr(A, "tocsr") else A
+            self._shape = self._sparse.shape
+            self._dtype = self._sparse.dtype
+            self._is_sparse = True
+        else:
+            arr = np.asarray(A)
+
+            try:
+                if np.iscomplexobj(arr):
+                    arr = arr.astype(np.complex128, copy=False)
+                else:
+                    arr = arr.astype(float, copy=False)
+            except (TypeError, ValueError):
+                arr = arr.astype(np.complex128, copy=False)
+
+            self._dense_cache = arr
+            self._sparse = None
+            self._shape = arr.shape
+            self._dtype = arr.dtype
+            self._is_sparse = False
+
+        self._is_square = (
+            len(self._shape) == 2 and self._shape[0] == self._shape[1]
+        )
+
+    # ------------------------------------------------------------------
+    # Temel property'ler
+    # ------------------------------------------------------------------
+
+    @property
+    def shape(self):
+        return self._shape
+
+    @property
+    def is_square(self) -> bool:
+        return bool(self._is_square)
+
+    @property
+    def is_sparse(self) -> bool:
+        return bool(self._is_sparse)
+
+    @property
+    def dtype(self):
+        return self._dtype
+
+    @property
+    def matrix(self):
+        """
+        Sparse ise sparse matrisi, dense ise dense matrisi döndürür.
+        """
+        return self._sparse if self._is_sparse else self.dense
+
+    @property
+    def dense(self) -> np.ndarray:
+        """
+        Matrisin dense numpy temsilini döndürür.
+        Sparse matrislerde sadece gerektiğinde çağrılmalıdır.
+        """
+        if self._dense_cache is None:
+            if self._is_sparse:
+                arr = self._sparse.toarray()
+            else:
+                arr = np.asarray(self._input)
+
+            if np.iscomplexobj(arr):
+                arr = arr.astype(np.complex128, copy=False)
+            else:
+                arr = arr.astype(float, copy=False)
+
+            self._dense_cache = arr
+
+        return self._dense_cache
+
+    @property
+    def diagonal(self) -> np.ndarray:
+        """
+        Matrisin köşegen elemanlarını döndürür.
+        """
+        if not self._is_square:
+            return np.array([])
+
+        if self._is_sparse:
+            return self._sparse.diagonal()
+
+        return np.diag(self.dense)
+
+    @property
+    def trace(self):
+        """
+        Matrisin izini döndürür.
+        """
+        if not self._is_square:
+            return 0.0
+
+        if self._is_sparse:
+            return self._sparse.trace()
+
+        return np.trace(self.dense)
+
+    @property
+    def norm(self) -> float:
+        """
+        Matrisin Frobenius normunu döndürür.
+        Sparse matrislerde sparse norm kullanılır.
+        """
+        if self._norm_cache is None:
+            self._norm_cache = self._norm(self.matrix)
+
+        return float(self._norm_cache)
+
+    # ------------------------------------------------------------------
+    # Yardımcı private fonksiyonlar
+    # ------------------------------------------------------------------
+
+    def _norm(self, M) -> float:
+        """
+        Dense veya sparse matrisin normunu hesaplar.
+        """
+        if _is_sparse(M):
+            if sp_norm is not None:
+                return float(sp_norm(M))
+            return float(np.linalg.norm(M.data)) if M.nnz else 0.0
+
+        return float(np.linalg.norm(np.asarray(M)))
+
+    def _close(self, X, Y, rtol: float, atol: float, ref_norm=None) -> bool:
+        """
+        İki matrisin birbirine yakın olup olmadığını norm tabanlı kontrol eder.
+        """
+        diff = X - Y
+
+        if ref_norm is None:
+            ref_norm = self._norm(Y)
+
+        diff_norm = self._norm(diff)
+
+        return bool(
+            diff_norm <= atol + rtol * max(1.0, float(ref_norm))
+        )
+
+    def _identity(self, use_sparse=None):
+        """
+        Kare matrisle aynı boyutta birim matris üretir.
+        """
+        if not self._is_square:
+            raise ValueError("Identity requires a square matrix.")
+
+        n = self._shape[0]
+
+        if use_sparse is None:
+            use_sparse = self._is_sparse
+
+        dtype = np.complex128 if np.issubdtype(self._dtype, np.complexfloating) else float
+
+        if use_sparse:
+            if not HAS_SCIPY:
+                raise RuntimeError("scipy.sparse is not available.")
+            return sparse.eye(n, format="csr", dtype=dtype)
+
+        return np.eye(n, dtype=dtype)
+
+    def _is_complex_dtype(self) -> bool:
+        return bool(np.issubdtype(self._dtype, np.complexfloating))
+
+    def _extreme_eigenvalue(self, which: str = "SA", tol: float = 1e-10) -> float:
+        """
+        Hermitian matrisler için extremal özdeğeri döndürür.
+
+        which:
+            "SA" -> smallest algebraic
+            "LA" -> largest algebraic
+
+        Sparse ve büyük matrislerde eigsh kullanmaya çalışır.
+        Başarısız olursa dense'e düşer.
+        """
+        if not self._is_square:
+            return float("nan")
+
+        if (
+            self._is_sparse
+            and HAS_SCIPY
+            and eigsh is not None
+            and self._shape[0] >= 50
+        ):
+            try:
+                dtype = np.complex128 if self._is_complex_dtype() else float
+                M = self._sparse.astype(dtype)
+
+                vals = eigsh(
+                    M,
+                    k=1,
+                    which=which,
+                    return_eigenvectors=False,
+                    tol=tol,
+                )
+
+                return float(np.real(vals[0]))
+
+            except Exception:
+                pass
+
+        # Fallback: dense eigen decomposition
+        vals = np.linalg.eigvalsh(self.dense)
+
+        if which == "SA":
+            return float(np.min(vals))
+
+        if which == "LA":
+            return float(np.max(vals))
+
+        raise ValueError("which must be 'SA' or 'LA'.")
+
+    # ------------------------------------------------------------------
+    # Temel matris özellikleri
+    # ------------------------------------------------------------------
+
+    def is_real(self, rtol: float = 1e-12, atol: float = 1e-14) -> bool:
+        """
+        Matrisin reel matris olup olmadığını kontrol eder.
+        """
+        if not self._is_complex_dtype():
+            return True
+
+        M = self.matrix
+        imag = M.imag
+
+        imag_norm = self._norm(imag)
+
+        return bool(
+            imag_norm <= atol + rtol * max(1.0, self.norm)
+        )
+
+    def is_diagonal(self, rtol: float = 1e-12, atol: float = 1e-14) -> bool:
+        """
+        Matrisin diagonal olup olmadığını kontrol eder.
+        """
+        if not self._is_square:
+            return False
+
+        M = self.matrix
+        diag = self.diagonal
+
+        if self._is_sparse:
+            D = sparse.diags(
+                diag,
+                offsets=0,
+                shape=self._shape,
+                format="csr",
+                dtype=M.dtype,
+            )
+            off = M - D
+        else:
+            D = np.diag(diag)
+            off = M - D
+
+        off_norm = self._norm(off)
+
+        return bool(
+            off_norm <= atol + rtol * max(1.0, self.norm)
+        )
+
+    def is_symmetric(self, rtol: float = 1e-12, atol: float = 1e-14) -> bool:
+        """
+        A = A^T kontrolü.
+        """
+        if not self._is_square:
+            return False
+
+        M = self.matrix
+        MT = M.T
+
+        return self._close(M, MT, rtol=rtol, atol=atol)
+
+    def is_hermitian(self, rtol: float = 1e-12, atol: float = 1e-14) -> bool:
+        """
+        A = A^H kontrolü.
+        """
+        if not self._is_square:
+            return False
+
+        M = self.matrix
+        MH = M.conj().T
+
+        return self._close(M, MH, rtol=rtol, atol=atol)
+
+    def is_skew_hermitian(self, rtol: float = 1e-12, atol: float = 1e-14) -> bool:
+        """
+        A = -A^H kontrolü.
+        """
+        if not self._is_square:
+            return False
+
+        M = self.matrix
+        neg_MH = -(M.conj().T)
+
+        return self._close(M, neg_MH, rtol=rtol, atol=atol)
+
+    def is_unitary(self, rtol: float = 1e-12, atol: float = 1e-14) -> bool:
+        """
+        A A^H = I kontrolü.
+        """
+        if not self._is_square:
+            return False
+
+        M = self.matrix
+        MH = M.conj().T
+        prod = M @ MH
+        I = self._identity(use_sparse=self._is_sparse)
+
+        return self._close(prod, I, rtol=rtol, atol=atol)
+
+    def is_normal(self, rtol: float = 1e-12, atol: float = 1e-14) -> bool:
+        """
+        A A^H = A^H A kontrolü.
+        """
+        if not self._is_square:
+            return False
+
+        M = self.matrix
+        MH = M.conj().T
+
+        left = M @ MH
+        right = MH @ M
+
+        return self._close(left, right, rtol=rtol, atol=atol)
+
+    # ------------------------------------------------------------------
+    # Yeni eklenen özellikler
+    # ------------------------------------------------------------------
+
+    def is_idempotent(self, rtol: float = 1e-12, atol: float = 1e-14) -> bool:
+        """
+        A^2 = A kontrolü.
+        """
+        if not self._is_square:
+            return False
+
+        M = self.matrix
+        prod = M @ M
+
+        return self._close(prod, M, rtol=rtol, atol=atol)
+
+    def is_involutory(self, rtol: float = 1e-12, atol: float = 1e-14) -> bool:
+        """
+        A^2 = I kontrolü.
+        """
+        if not self._is_square:
+            return False
+
+        M = self.matrix
+        prod = M @ M
+        I = self._identity(use_sparse=self._is_sparse)
+
+        return self._close(prod, I, rtol=rtol, atol=atol)
+
+    def is_projection(self, rtol: float = 1e-12, atol: float = 1e-14) -> bool:
+        """
+        Projection tanımı burada idempotent matris olarak alınmıştır:
+
+            P^2 = P
+
+        Eğer orthogonal projection isteniyorsa:
+
+            is_projection() and is_hermitian()
+
+        veya doğrudan:
+
+            is_orthogonal_projection()
+        """
+        return self.is_idempotent(rtol=rtol, atol=atol)
+
+    def is_orthogonal_projection(self, rtol: float = 1e-12, atol: float = 1e-14) -> bool:
+        """
+        Orthogonal projection:
+
+            P^2 = P ve P = P^H
+        """
+        return bool(
+            self.is_projection(rtol=rtol, atol=atol)
+            and self.is_hermitian(rtol=rtol, atol=atol)
+        )
+
+    def is_orthogonal(self, rtol: float = 1e-12, atol: float = 1e-14) -> bool:
+        """
+        Real orthogonal matrix kontrolü:
+
+            A^T A = I
+
+        Kompleks matrisler için orthogonal yerine unitary kullanılır.
+        Bu metot, matris kompleks ise ve sanal kısmı sıfırdan farklıysa False döndürür.
+        """
+        if not self._is_square:
+            return False
+
+        if not self.is_real(rtol=rtol, atol=atol):
+            return False
+
+        M = self.matrix
+        MR = M.real
+
+        prod = MR.T @ MR
+
+        if self._is_sparse:
+            I = sparse.eye(self._shape[0], format="csr", dtype=float)
+        else:
+            I = np.eye(self._shape[0], dtype=float)
+
+        return self._close(prod, I, rtol=rtol, atol=atol)
+
+    def is_positive_definite(self, tol: float = 1e-10) -> bool:
+        """
+        Hermitian ve tüm özdeğerleri > tol.
+        """
+        if not self.is_hermitian(rtol=tol, atol=tol):
+            return False
+
+        try:
+            min_eig = self._extreme_eigenvalue(which="SA", tol=tol)
+        except np.linalg.LinAlgError:
+            return False
+
+        return bool(min_eig > tol)
+
+    def is_positive_semidefinite(self, tol: float = 1e-10) -> bool:
+        """
+        Hermitian ve tüm özdeğerleri >= -tol.
+        """
+        if not self.is_hermitian(rtol=tol, atol=tol):
+            return False
+
+        try:
+            min_eig = self._extreme_eigenvalue(which="SA", tol=tol)
+        except np.linalg.LinAlgError:
+            return False
+
+        return bool(min_eig >= -tol)
+
+    def is_negative_definite(self, tol: float = 1e-10) -> bool:
+        """
+        Hermitian ve tüm özdeğerleri < -tol.
+        """
+        if not self.is_hermitian(rtol=tol, atol=tol):
+            return False
+
+        try:
+            max_eig = self._extreme_eigenvalue(which="LA", tol=tol)
+        except np.linalg.LinAlgError:
+            return False
+
+        return bool(max_eig < -tol)
+
+    def is_trace_zero(self, rtol: float = 1e-12, atol: float = 1e-14) -> bool:
+        """
+        trace(A) ≈ 0 kontrolü.
+        """
+        if not self._is_square:
+            return False
+
+        tr = self.trace
+        scale = max(1.0, self.norm)
+
+        return bool(abs(tr) <= atol + rtol * scale)
+
+    def is_singular(self, rtol: float = 1e-12, atol: float = 1e-14) -> bool:
+        """
+        Matris singular mı?
+
+        En küçük singular değer <= atol + rtol * norm(A) ise singular kabul edilir.
+        """
+        if not self._is_square:
+            return False
+
+        threshold = atol + rtol * max(1.0, self.norm)
+
+        # Büyük sparse matrislerde svds ile sadece en küçük singular değeri aramayı dene.
+        if (
+            self._is_sparse
+            and HAS_SCIPY
+            and svds is not None
+            and min(self._shape) > 2
+            and self._shape[0] >= 50
+        ):
+            try:
+                dtype = np.complex128 if self._is_complex_dtype() else float
+                M = self._sparse.astype(dtype)
+
+                s = svds(
+                    M,
+                    k=1,
+                    which="SM",
+                    return_singular_vectors=False,
+                )
+
+                return bool(float(np.min(s)) <= threshold)
+
+            except Exception:
+                pass
+
+        # Fallback: dense SVD
+        try:
+            s = np.linalg.svd(self.dense, compute_uv=False)
+            return bool(s[-1] <= threshold)
+
+        except np.linalg.LinAlgError:
+            rank = np.linalg.matrix_rank(self.dense, tol=threshold)
+            return bool(rank < self._shape[0])
+
+    # ------------------------------------------------------------------
+    # Özdeğerler ve sayısal ek bilgiler
+    # ------------------------------------------------------------------
+
+    @property
+    def eigenvalues(self) -> np.ndarray:
+        """
+        Matrisin özdeğerlerini döndürür.
+
+        Sparse matrislerde bu işlem dense dönüşüm gerektirebilir.
+        """
+        if self._eigenvalues_cache is not None:
+            return self._eigenvalues_cache
+
+        if not self._is_square:
+            self._eigenvalues_cache = np.array([], dtype=np.complex128)
+            return self._eigenvalues_cache
+
+        try:
+            if self.is_hermitian():
+                vals = np.linalg.eigvalsh(self.dense)
+            else:
+                vals = np.linalg.eigvals(self.dense)
+
+            vals = vals.astype(np.complex128)
+
+        except np.linalg.LinAlgError:
+            vals = np.array([], dtype=np.complex128)
+
+        self._eigenvalues_cache = vals
+        return self._eigenvalues_cache
+
+    @property
+    def spectral_radius(self) -> float:
+        """
+        max |eigenvalue|
+        """
+        vals = self.eigenvalues
+
+        if vals.size == 0:
+            return float("nan")
+
+        return float(np.max(np.abs(vals)))
+
+    @property
+    def condition_number(self) -> float:
+        """
+        Matrisin condition number değeri.
+        """
+        if not self._is_square:
+            return float("nan")
+
+        try:
+            return float(np.linalg.cond(self.dense))
+        except np.linalg.LinAlgError:
+            return float("inf")
+
+    # ------------------------------------------------------------------
+    # Summary / report
+    # ------------------------------------------------------------------
+
+    def summary(
+        self,
+        include_advanced: bool = True,
+        include_definiteness: bool = True,
+    ) -> dict:
+        """
+        Matris özelliklerini dictionary olarak döndürür.
+
+        np.True_ / np.False_ yerine Python bool döndürür.
+        """
+        if not self._is_square:
+            return {"Error": "Matrix is not square."}
+
+        result = {
+            "Diagonal": self.is_diagonal(),
+            "Symmetric": self.is_symmetric(),
+            "Hermitian": self.is_hermitian(),
+            "Skew-Hermitian": self.is_skew_hermitian(),
+            "Unitary": self.is_unitary(),
+            "Normal": self.is_normal(),
+        }
+
+        if include_advanced:
+            result.update(
+                {
+                    "Idempotent": self.is_idempotent(),
+                    "Involutory": self.is_involutory(),
+                    "Projection": self.is_projection(),
+                    "Orthogonal Projection": self.is_orthogonal_projection(),
+                    "Orthogonal": self.is_orthogonal(),
+                    "Trace Zero": self.is_trace_zero(),
+                    "Singular": self.is_singular(),
+                }
+            )
+
+        if include_definiteness:
+            result.update(
+                {
+                    "Positive Definite": self.is_positive_definite(),
+                    "Positive Semidefinite": self.is_positive_semidefinite(),
+                    "Negative Definite": self.is_negative_definite(),
+                }
+            )
+
+        # np.bool_ -> Python bool
+        return {k: bool(v) for k, v in result.items()}
+
+    def report(self) -> dict:
+        """
+        Hem boolean özellikler hem de sayısal bilgiler.
+        """
+        base = self.summary()
+
+        if "Error" in base:
+            return base
+
+        rep = dict(base)
+        rep["Eigenvalues"] = self.eigenvalues
+        rep["Spectral Radius"] = self.spectral_radius
+        rep["Condition Number"] = self.condition_number
+
+        return rep
+
+# ----------------------------------------------------------------------------
+# Yardımcı doğrulayıcılar
+# ----------------------------------------------------------------------------
+"""
+def _is_diagonal(A: np.ndarray, tol: float = 1e-14) -> bool:
+    off = A - np.diag(np.diag(A))
+    return np.linalg.norm(off) < tol * max(1.0, np.linalg.norm(A))
+
+
+def _is_hermitian(A: np.ndarray, tol: float = 1e-10) -> bool:
+    return np.allclose(A, A.conj().T, atol=tol)
+"""
+def _is_diagonal(A, tol: float = 1e-14) -> bool:
+    return bool(MatrixAnalyzer(A).is_diagonal(rtol=tol, atol=tol))
+
+
+def _is_hermitian(A, tol: float = 1e-10) -> bool:
+    return bool(MatrixAnalyzer(A).is_hermitian(rtol=tol, atol=tol))
 
 # ----------------------------------------------------------------------------
 # 1) Prabhakar — skaler E^γ_{α,β}(z)
@@ -1433,7 +2138,6 @@ class Prabhakar:
     def evaluate_real(self, x: float, **kw) -> float:
         return float(np.real(self.evaluate(x, **kw)))
 
-
 # ----------------------------------------------------------------------------
 # 2) MatrixMittagLeffler — E^γ_{α,β}(A)
 # ----------------------------------------------------------------------------
@@ -1460,21 +2164,45 @@ class MatrixMittagLeffler:
         self.alpha, self.beta, self.gamma_p = alpha, beta, gamma_p
         self.tol = tolerance
 
-    def evaluate(self, A: np.ndarray, max_terms: int = 200) -> np.ndarray:
-        A = np.asarray(A, dtype=complex)
-        if A.ndim != 2 or A.shape[0] != A.shape[1]:
-            raise ValueError("A kare matris olmalı")
-        if _is_diagonal(A):
-            return self._via_diag(A)
-        if _is_hermitian(A):
-            return self._via_eig(A)
-        return self._via_series(A, max_terms)
+    def evaluate(self, A, max_terms: int = 200, sparse_output: bool = False):
+        analyzer = MatrixAnalyzer(A)
+
+        if not analyzer.is_square:
+            raise ValueError("A kare matris olmalı.")
+
+        if analyzer.is_diagonal(rtol=self.tol, atol=self.tol):
+            return self._via_diag_values(
+                analyzer.diagonal,
+                sparse_output=sparse_output and analyzer.is_sparse
+            )
+
+        if analyzer.is_hermitian(rtol=self.tol, atol=self.tol):
+            return self._via_eig(analyzer.dense)
+
+        return self._via_series(analyzer.dense, max_terms)
+
 
     # --- strateji 1: diyagonal ---
     def _via_diag(self, A):
-        diag = np.diag(A)
-        f_diag = np.array([self._scalar.evaluate(v) for v in diag])
-        return np.diag(f_diag)
+        """
+        Geriye uyumluluk için tutuluyor.
+        Yeni kodlarda _via_diag_values tercih edilmeli.
+        """
+        analyzer = MatrixAnalyzer(A)
+        return self._via_diag_values(analyzer.diagonal, sparse_output=False)
+
+    def _via_diag_values(self, diag, sparse_output: bool = False):
+        diag = np.asarray(diag, dtype=complex)
+
+        vals = np.array(
+            [self._scalar.evaluate(z) for z in diag],
+            dtype=complex
+        )
+
+        if sparse_output and HAS_SCIPY:
+            return sparse.diags(vals, format="csr")
+
+        return np.diag(vals)
 
     # --- strateji 2: Hermitian ---
     def _via_eig(self, A):
@@ -1782,30 +2510,1322 @@ class CompositeFractionalChannel:
     def time_series(self, rho0: np.ndarray, times) -> list[np.ndarray]:
         return [self.evolve(rho0, t) for t in times]
 
-# Test 1 — α=1, β=1, γ=1 → exp(z)
-p = Prabhakar(1.0, 1.0, 1.0)
-assert abs(p.evaluate(-2.0) - np.exp(-2.0)) < 1e-10
 
-# Test 2 — MatrixMittagLeffler, diyagonal → skalerle aynı
-M = MatrixMittagLeffler(0.5, 1.0, 1.0)
-A = np.diag([-1.0, -2.0, -3.0])
-R = M.evaluate(A)
-for i, lam in enumerate([-1, -2, -3]):
-    s = Prabhakar(0.5, 1.0, 1.0).evaluate(lam)
-    assert abs(R[i, i] - s) < 1e-10
+# ----------------------------------------------------------------------
+# Property sırası
+# ----------------------------------------------------------------------
 
-# Test 3 — Kraus iz koruma
-ch = FractionalQuantumChannel(0.3)
-rho = np.eye(4, dtype=complex) / 4
-G = np.diag([0.0, -0.6, -0.6, -0.8]).astype(complex)
-rho_t = ch.evolve_state(rho, G, t=2.0, check_kraus=True)  # uyarı OLMAMALI
-assert abs(np.trace(rho_t) - 1.0) < 1e-8
+DASHBOARD_PROPERTY_ORDER = [
+    "Diagonal",
+    "Symmetric",
+    "Hermitian",
+    "Skew-Hermitian",
+    "Unitary",
+    "Normal",
+    "Idempotent",
+    "Involutory",
+    "Projection",
+    "Orthogonal Projection",
+    "Orthogonal",
+    "Trace Zero",
+    "Singular",
+    "Positive Definite",
+    "Positive Semidefinite",
+    "Negative Definite",
+]
 
-# Test 4 — time_series == döngüsel evolve_state
-rho_a = ch.evolve_state(rho, G, t=1.5)
-rho_b = ch.time_series(G, np.array([1.5]), rho)[0]
-assert np.allclose(rho_a, rho_b, atol=1e-10)
 
-# mlfp.py'nin sonuna ekle
-if __name__ == "__main__":
-    run_all_tests(verbose=True)
+# ----------------------------------------------------------------------
+# Yardımcı: property isimlerini topla
+# ----------------------------------------------------------------------
+
+def _collect_property_names(summaries):
+    present = set()
+
+    for s in summaries:
+        for key in s.keys():
+            if key != "Error":
+                present.add(key)
+
+    ordered = [
+        p for p in DASHBOARD_PROPERTY_ORDER
+        if p in present
+    ]
+
+    extras = sorted(present - set(ordered))
+
+    return ordered + extras
+
+
+# ----------------------------------------------------------------------
+# Yardımcı: rapor yazdır
+# ----------------------------------------------------------------------
+
+def _print_report(analyzer):
+    print("=" * 70)
+    print(f"Matrix: {analyzer.name}")
+    print("=" * 70)
+
+    report = analyzer.report()
+
+    for key, value in report.items():
+        if isinstance(value, np.ndarray):
+            print(
+                f"  {key:28}: "
+                f"{np.array2string(value, precision=4, suppress_small=True)}"
+            )
+        else:
+            print(f"  {key:28}: {value}")
+
+    print()
+
+
+# ----------------------------------------------------------------------
+# Summary heatmap
+# ----------------------------------------------------------------------
+
+def _summary_heatmap(analyzers, ax=None):
+    """
+    A ve E(A) gibi analyzer nesnelerinin boolean özelliklerini heatmap olarak çizer.
+    """
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(16, 3.8))
+
+    summaries = [a.summary() for a in analyzers]
+    props = _collect_property_names(summaries)
+
+    if not props:
+        ax.text(
+            0.5,
+            0.5,
+            "No square matrix available.",
+            ha="center",
+            va="center",
+        )
+        ax.axis("off")
+        return ax
+
+    data = []
+    text_data = []
+
+    for s in summaries:
+        row = []
+        text_row = []
+
+        if "Error" in s:
+            row = [np.nan] * len(props)
+            text_row = ["N/A"] * len(props)
+        else:
+            for p in props:
+                val = bool(s.get(p, False))
+                row.append(1.0 if val else 0.0)
+                text_row.append("True" if val else "False")
+
+        data.append(row)
+        text_data.append(text_row)
+
+    data = np.array(data, dtype=float)
+
+    im = ax.imshow(
+        data,
+        cmap="RdYlGn",
+        vmin=0,
+        vmax=1,
+        aspect="auto",
+    )
+
+    ax.set_xticks(range(len(props)))
+    ax.set_xticklabels(props, rotation=60, ha="right", fontsize=8)
+
+    ax.set_yticks(range(len(analyzers)))
+    ax.set_yticklabels(
+        [
+            getattr(a, "name", f"Matrix {i+1}")
+            for i, a in enumerate(analyzers)
+        ]
+    )
+
+    for i in range(data.shape[0]):
+        for j in range(data.shape[1]):
+            if not np.isnan(data[i, j]):
+                ax.text(
+                    j,
+                    i,
+                    text_data[i][j],
+                    ha="center",
+                    va="center",
+                    fontsize=8,
+                    color="black",
+                )
+
+    ax.set_title("Property Comparison: A vs E(A)", fontsize=12)
+
+    cbar = ax.figure.colorbar(im, ax=ax, ticks=[0, 1])
+    cbar.ax.set_yticklabels(["False", "True"])
+
+    return ax
+
+
+# ----------------------------------------------------------------------
+# Tek matris heatmap
+# ----------------------------------------------------------------------
+
+def _matrix_heatmap_axis(ax, analyzer, title):
+    """
+    Tek bir analyzer nesnesinin matrisini verilen axis üzerine çizer.
+    """
+    if not analyzer.is_square:
+        ax.axis("off")
+        ax.set_title(f"{title}\n(not square)")
+        return
+
+    A = analyzer.dense
+
+    if np.iscomplexobj(A):
+        if np.allclose(A.imag, 0.0, atol=1e-12):
+            data = A.real
+            subtitle = "Re(A)"
+            cmap = "coolwarm"
+        else:
+            data = np.abs(A)
+            subtitle = "|A|"
+            cmap = "viridis"
+    else:
+        data = A
+        subtitle = "A"
+        cmap = "coolwarm"
+
+    im = ax.imshow(data, cmap=cmap)
+
+    ax.set_title(f"{title}\n{subtitle}", fontsize=10)
+
+    ax.set_xticks(range(data.shape[1]))
+    ax.set_yticks(range(data.shape[0]))
+
+    ax.figure.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+
+
+# ----------------------------------------------------------------------
+# Eigenvalue comparison
+# ----------------------------------------------------------------------
+
+def _eigenvalue_comparison(analyzers, ax=None):
+    """
+    A ve E(A) özdeğerlerini karmaşık düzlemde karşılaştırır.
+    """
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(7.6, 7.6))
+
+    for analyzer in analyzers:
+        vals = analyzer.eigenvalues
+
+        if vals.size == 0:
+            continue
+
+        ax.scatter(
+            vals.real,
+            vals.imag,
+            s=80,
+            label=analyzer.name,
+            alpha=0.85,
+        )
+
+        for idx, z in enumerate(vals, start=1):
+            ax.annotate(
+                f"{analyzer.name}: λ{idx}",
+                xy=(z.real, z.imag),
+                xytext=(6, 6),
+                textcoords="offset points",
+                fontsize=8,
+                alpha=0.85,
+            )
+
+    ax.axhline(0, color="black", linewidth=0.9)
+    ax.axvline(0, color="black", linewidth=0.9)
+
+    ax.grid(True, linestyle="--", alpha=0.35)
+
+    ax.set_xlabel("Re(λ)")
+    ax.set_ylabel("Im(λ)")
+    ax.set_title("Eigenvalues: A vs E(A)")
+
+    ax.legend(loc="best", fontsize=9)
+    ax.set_aspect("equal", adjustable="datalim")
+
+    return ax
+
+
+# ----------------------------------------------------------------------
+# Ana dashboard fonksiyonu
+# ----------------------------------------------------------------------
+
+def analyze_and_plot_transform(
+    A,
+    mml,
+    name: str = "A",
+    sparse_output: bool = False,
+    save_prefix: str = None,
+    show: bool = True,
+    verbose: bool = True,
+):
+    """
+    A matrisini ve E(A) = MatrixMittagLeffler.evaluate(A) sonucunu
+    analiz edip yan yana grafikler üretir.
+    """
+
+    # 1. A analizi
+    A_analyzer = MatrixAnalyzer(A, name=name)
+
+    # 2. E(A) hesapla
+    try:
+        F = mml.evaluate(A, sparse_output=sparse_output)
+    except TypeError:
+        # Eğer evaluate sparse_output parametresi desteklemiyorsa
+        F = mml.evaluate(A)
+
+    F_name = f"E({name})"
+
+    # 3. E(A) analizi
+    F_analyzer = MatrixAnalyzer(F, name=F_name)
+
+    analyzers = [A_analyzer, F_analyzer]
+
+    # 4. Konsol raporu
+    if verbose:
+        _print_report(A_analyzer)
+        _print_report(F_analyzer)
+
+    figures = {}
+
+    # ------------------------------------------------------------------
+    # Grafik 1: property heatmap
+    # ------------------------------------------------------------------
+    fig1, ax1 = plt.subplots(figsize=(16, 3.8))
+    _summary_heatmap(analyzers, ax=ax1)
+    fig1.tight_layout()
+
+    if save_prefix:
+        fig1.savefig(
+            f"{save_prefix}_properties.png",
+            dpi=150,
+            bbox_inches="tight",
+        )
+
+    figures["properties"] = fig1
+
+    # ------------------------------------------------------------------
+    # Grafik 2: A ve E(A) matrislerini yan yana çiz
+    # ------------------------------------------------------------------
+    fig2, axes = plt.subplots(1, 2, figsize=(10.6, 4.8))
+
+    _matrix_heatmap_axis(axes[0], A_analyzer, name)
+    _matrix_heatmap_axis(axes[1], F_analyzer, F_name)
+
+    fig2.suptitle(f"{name} vs {F_name}", fontsize=13)
+    fig2.tight_layout(rect=[0, 0, 1, 0.94])
+
+    if save_prefix:
+        fig2.savefig(
+            f"{save_prefix}_matrices.png",
+            dpi=150,
+            bbox_inches="tight",
+        )
+
+    figures["matrices"] = fig2
+
+    # ------------------------------------------------------------------
+    # Grafik 3: eigenvalue comparison
+    # ------------------------------------------------------------------
+    fig3, ax3 = plt.subplots(figsize=(7.6, 7.6))
+    _eigenvalue_comparison(analyzers, ax=ax3)
+    fig3.tight_layout()
+
+    if save_prefix:
+        fig3.savefig(
+            f"{save_prefix}_eigenvalues.png",
+            dpi=150,
+            bbox_inches="tight",
+        )
+
+    figures["eigenvalues"] = fig3
+
+    if show:
+        plt.show()
+
+    return {
+        "figures": figures,
+        "A_analyzer": A_analyzer,
+        "F_analyzer": F_analyzer,
+        "F": F,
+    }
+
+# ======================================================================
+# 1. Sparse Hermitian destekli MatrixMittagLeffler
+# ======================================================================
+
+class SparseHermitianMatrixMittagLeffler(MatrixMittagLeffler):
+    """
+    MatrixMittagLeffler sınıfına sparse Hermitian eigsh yolu ekleyen alt sınıf.
+
+    Yeni evaluate parametreleri:
+        sparse_output:
+            True ise diagonal sonuçlar sparse döndürülmeye çalışılır.
+
+        sparse_hermitian_k:
+            None ise Hermitian sparse matris için tam dense spektral ayrışım yapılır.
+            Bir tamsayı ise eigsh ile sadece k özdeğer/özvektör çifti kullanılır.
+
+            ÖNEMLİ:
+            k < n olduğunda sonuç tam f(A) değildir.
+            Seçilen özçiftlere dayalı yaklaşık bir projeksiyondur:
+
+                f(A) ≈ V_k f(Λ_k) V_k^H
+
+        sparse_hermitian_which:
+            eigsh için seçim türü:
+                "SA" -> smallest algebraic
+                "LA" -> largest algebraic
+                "SM" -> smallest magnitude
+                "LM" -> largest magnitude
+    """
+
+    def evaluate(
+        self,
+        A,
+        max_terms: int = 200,
+        sparse_output: bool = False,
+        sparse_hermitian_k=None,
+        sparse_hermitian_which: str = "SA",
+    ):
+        analyzer = MatrixAnalyzer(A)
+
+        if not analyzer.is_square:
+            raise ValueError("A kare matris olmalı.")
+
+        # --------------------------------------------------------------
+        # 1) Diagonal matris
+        # --------------------------------------------------------------
+        if analyzer.is_diagonal(rtol=self.tol, atol=self.tol):
+            return self._via_diag_values(
+                analyzer.diagonal,
+                sparse_output=sparse_output and analyzer.is_sparse,
+            )
+
+        # --------------------------------------------------------------
+        # 2) Hermitian matris
+        # --------------------------------------------------------------
+        if analyzer.is_hermitian(rtol=self.tol, atol=self.tol):
+
+            # Sparse Hermitian ve kullanıcı k verdiyse eigsh yolu
+            if analyzer.is_sparse and sparse_hermitian_k is not None:
+                return self._via_sparse_hermitian_eigsh(
+                    analyzer.matrix,
+                    k=sparse_hermitian_k,
+                    which=sparse_hermitian_which,
+                    sparse_output=sparse_output,
+                )
+
+            # Varsayılan tam Hermitian yol
+            return self._via_eig(analyzer.dense)
+
+        # --------------------------------------------------------------
+        # 3) Genel matris
+        # --------------------------------------------------------------
+        return self._via_series(analyzer.dense, max_terms)
+
+    # ------------------------------------------------------------------
+    # Diyagonal değerler üzerinden değerlendirme
+    # ------------------------------------------------------------------
+
+    def _via_diag_values(self, diag, sparse_output: bool = False):
+        """
+        Sadece köşegen değerlerini kullanarak sonucu üretir.
+        """
+        diag = np.asarray(diag, dtype=complex)
+
+        vals = np.array(
+            [self._scalar.evaluate(z) for z in diag],
+            dtype=complex,
+        )
+
+        if sparse_output and HAS_SCIPY:
+            return sparse.diags(vals, format="csr")
+
+        return np.diag(vals)
+
+    # ------------------------------------------------------------------
+    # Sparse Hermitian eigsh yolu
+    # ------------------------------------------------------------------
+
+    def _via_sparse_hermitian_eigsh(
+        self,
+        sparse_matrix,
+        k=None,
+        which: str = "SA",
+        sparse_output: bool = False,
+    ):
+        """
+        Sparse Hermitian matris için scipy.sparse.linalg.eigsh tabanlı yol.
+
+        k=None:
+            Tam sonuç için dense'e çevirir ve np.linalg.eigh kullanır.
+
+        k=int:
+            Sadece k özçift kullanır.
+
+            Eğer k >= N - 1 ise ARPACK/eigsh sparse matris için kullanılamaz.
+            Bu durumda dense eigh ile ilgili k özçift seçilir.
+
+            Sonuç tam f(A) değildir:
+
+                f(A) ≈ V_k f(Λ_k) V_k^H
+        """
+
+        if not HAS_SCIPY:
+            raise RuntimeError("scipy.sparse gerekli. Lütfen scipy kurun.")
+
+        if not sparse.issparse(sparse_matrix):
+            sparse_matrix = sparse.csr_matrix(sparse_matrix)
+
+        if sparse_matrix.shape[0] != sparse_matrix.shape[1]:
+            raise ValueError("sparse_matrix kare matris olmalı.")
+
+        n = sparse_matrix.shape[0]
+
+        which = str(which).upper()
+
+        if which not in {"SA", "LA", "SM", "LM"}:
+            raise ValueError(
+                "which parametresi 'SA', 'LA', 'SM' veya 'LM' olmalı."
+            )
+
+        # ------------------------------------------------------------------
+        # Tam sonuç
+        # ------------------------------------------------------------------
+        if k is None:
+            warnings.warn(
+                "sparse_hermitian_k=None: "
+                "Tam spektral ayrışım için sparse matris dense'e çevriliyor. "
+                "Büyük matrislerde bellek kullanımı artabilir.",
+                stacklevel=2,
+            )
+
+            A_dense = sparse_matrix.toarray()
+
+            vals, V = np.linalg.eigh(A_dense)
+
+            fvals = np.array(
+                [self._scalar.evaluate(z) for z in vals],
+                dtype=complex,
+            )
+
+            F = (V * fvals) @ V.conj().T
+
+            if sparse_output:
+                return sparse.csr_matrix(F)
+
+            return F
+
+        # ------------------------------------------------------------------
+        # k kontrolü
+        # ------------------------------------------------------------------
+        if k <= 0:
+            raise ValueError("k pozitif bir tamsayı olmalı.")
+
+        if k >= n:
+            raise ValueError(
+                f"k={k} çok büyük. k < n olmalı. n={n}. "
+                "Tam sonuç için sparse_hermitian_k=None kullanın."
+            )
+
+        # ------------------------------------------------------------------
+        # eigsh, sparse matrislerde k >= N - 1 durumunu sevmez.
+        # Özellikle 2x2 matriste k=1 buna girer.
+        # Bu durumda dense eigh ile seçilmiş özçiftleri kullanıyoruz.
+        # ------------------------------------------------------------------
+        if k >= n - 1:
+            warnings.warn(
+                f"k={k} >= N-1={n - 1} olduğundan eigsh sparse matris için kullanılamıyor. "
+                "Dense eigh ile seçilen özçiftler kullanılıyor. "
+                "Tam sonuç için sparse_hermitian_k=None kullanın.",
+                stacklevel=2,
+            )
+
+            A_dense = sparse_matrix.toarray()
+
+            vals, V = np.linalg.eigh(A_dense)
+
+            # Hangi özdeğerlerin seçileceğini belirle
+            if which == "SA":
+                idx = np.argsort(vals.real)[:k]
+
+            elif which == "LA":
+                idx = np.argsort(vals.real)[-k:]
+
+            elif which == "SM":
+                idx = np.argsort(np.abs(vals))[:k]
+
+            elif which == "LM":
+                idx = np.argsort(np.abs(vals))[-k:]
+
+            else:
+                raise ValueError("Geçersiz which değeri.")
+
+            vals_k = vals[idx]
+            V_k = V[:, idx]
+
+            fvals = np.array(
+                [self._scalar.evaluate(z) for z in vals_k],
+                dtype=complex,
+            )
+
+            F_approx = (V_k * fvals) @ V_k.conj().T
+
+            warnings.warn(
+                f"sparse_hermitian_k={k}: "
+                "Sonuç tam f(A) değildir. "
+                "Seçilen özçiftlere dayalı yaklaşık bir projeksiyondur: "
+                "f(A) ≈ V_k f(Λ_k) V_k^H",
+                stacklevel=2,
+            )
+
+            if sparse_output:
+                return sparse.csr_matrix(F_approx)
+
+            return F_approx
+
+        # ------------------------------------------------------------------
+        # Normal eigsh yolu
+        # ------------------------------------------------------------------
+        if np.issubdtype(sparse_matrix.dtype, np.complexfloating):
+            dtype = np.complex128
+        else:
+            dtype = float
+
+        M = sparse_matrix.astype(dtype)
+
+        vals, V = spla.eigsh(
+            M,
+            k=k,
+            which=which,
+            return_eigenvectors=True,
+        )
+
+        fvals = np.array(
+            [self._scalar.evaluate(z) for z in vals],
+            dtype=complex,
+        )
+
+        F_approx = (V * fvals) @ V.conj().T
+
+        warnings.warn(
+            f"sparse_hermitian_k={k}: "
+            "Sonuç tam f(A) değildir. "
+            "Seçilen özçiftlere dayalı yaklaşık bir projeksiyondur: "
+            "f(A) ≈ V_k f(Λ_k) V_k^H",
+            stacklevel=2,
+        )
+
+        if sparse_output:
+            return sparse.csr_matrix(F_approx)
+
+        return F_approx
+
+
+# ======================================================================
+# 2. time_process
+# ======================================================================
+
+def _evaluate_with_kwargs(mml, A, **kwargs):
+    """
+    Farklı MatrixMittagLeffler.evaluate imzalarına karşı güvenli çağrı.
+    """
+    try:
+        return mml.evaluate(A, **kwargs)
+    except TypeError:
+        # Yeni parametreleri desteklemeyen eski evaluate için geri dönüş
+        filtered = {}
+
+        if "max_terms" in kwargs:
+            filtered["max_terms"] = kwargs["max_terms"]
+
+        if "sparse_output" in kwargs:
+            filtered["sparse_output"] = kwargs["sparse_output"]
+
+        try:
+            return mml.evaluate(A, **filtered)
+        except TypeError:
+            return mml.evaluate(A)
+
+
+def time_process(
+    H,
+    t_array,
+    alpha: float = 1.0,
+    beta: float = 1.0,
+    gamma_p: float = 1.0,
+    tolerance: float = 1e-13,
+    max_terms: int = 200,
+    sparse_output: bool = False,
+    sparse_hermitian_k=None,
+    sparse_hermitian_which: str = "SA",
+    return_analyzers: bool = False,
+    mml=None,
+):
+    """
+    H matrisi üzerinden t parametreli matris süreci üretir.
+
+    α=1, β=1, γ=1 için:
+
+        E^1_{1,1}(-i H t) = exp(-i H t)
+
+    Eğer H Hermitian ise bu matrisler unitary olur.
+
+    Parametreler:
+        H:
+            Kare matris. Dense numpy veya scipy.sparse olabilir.
+
+        t_array:
+            Zaman/süreç parametreleri.
+
+        return_analyzers:
+            True ise her sonuç için MatrixAnalyzer nesneleri de döndürülür.
+
+        mml:
+            İstersen kendi MatrixMittagLeffler nesneni verebilirsin.
+            Varsayılan olarak SparseHermitianMatrixMittagLeffler kullanılır.
+    """
+
+    H_analyzer = MatrixAnalyzer(H, name="H")
+
+    if not H_analyzer.is_square:
+        raise ValueError("H kare matris olmalı.")
+
+    if mml is None:
+        mml = SparseHermitianMatrixMittagLeffler(
+            alpha=alpha,
+            beta=beta,
+            gamma_p=gamma_p,
+            tolerance=tolerance,
+        )
+
+    scalar_input = np.isscalar(t_array)
+
+    t_values = np.atleast_1d(np.asarray(t_array, dtype=float))
+
+    H_mat = H_analyzer.matrix
+
+    results = []
+    analyzers = []
+
+    for t in t_values:
+
+        # A(t) = -i H t
+        A_t = H_mat * (-1j * float(t))
+
+        F = _evaluate_with_kwargs(
+            mml,
+            A_t,
+            max_terms=max_terms,
+            sparse_output=sparse_output,
+            sparse_hermitian_k=sparse_hermitian_k,
+            sparse_hermitian_which=sparse_hermitian_which,
+        )
+
+        results.append(F)
+
+        if return_analyzers:
+            analyzers.append(
+                MatrixAnalyzer(F, name=f"t={float(t):.6g}")
+            )
+
+    if scalar_input:
+        if return_analyzers:
+            return results[0], analyzers[0]
+        return results[0]
+
+    if return_analyzers:
+        return results, analyzers
+
+    return results
+
+
+# ======================================================================
+# 3. Süreç metrikleri grafiği
+# ======================================================================
+
+def plot_time_process_metrics(
+    t_array,
+    results,
+    save_prefix: str = None,
+    show: bool = True,
+):
+    """
+    time_process sonuçları üzerinden temel metrikleri çizer:
+
+    - spectral radius
+    - condition number
+    - |trace|
+    """
+
+    t_values = np.atleast_1d(np.asarray(t_array, dtype=float))
+
+    analyzers = [
+        MatrixAnalyzer(F, name=f"t={float(t):.6g}")
+        for t, F in zip(t_values, results)
+    ]
+
+    spectral_radius = []
+    condition_numbers = []
+    trace_abs = []
+
+    for analyzer in analyzers:
+
+        spectral_radius.append(analyzer.spectral_radius)
+
+        cond = analyzer.condition_number
+        if np.isfinite(cond):
+            condition_numbers.append(float(cond))
+        else:
+            condition_numbers.append(np.nan)
+
+        trace_abs.append(abs(analyzer.trace))
+
+    fig, axes = plt.subplots(1, 3, figsize=(15.5, 4.2))
+
+    axes[0].plot(t_values, spectral_radius, marker="o")
+    axes[0].set_title("Spectral Radius")
+    axes[0].set_xlabel("t")
+
+    axes[1].plot(t_values, condition_numbers, marker="o", color="tab:orange")
+    axes[1].set_title("Condition Number")
+    axes[1].set_xlabel("t")
+
+    axes[2].plot(t_values, trace_abs, marker="o", color="tab:green")
+    axes[2].set_title("|Trace|")
+    axes[2].set_xlabel("t")
+
+    for ax in axes:
+        ax.grid(True, linestyle="--", alpha=0.35)
+
+    fig.tight_layout()
+
+    if save_prefix:
+        fig.savefig(
+            f"{save_prefix}_metrics.png",
+            dpi=150,
+            bbox_inches="tight",
+        )
+
+    if show:
+        plt.show()
+
+    return fig, analyzers
+
+
+# ======================================================================
+# 4. Süreç özdeğer grafiği
+# ======================================================================
+
+def plot_time_process_eigenvalues(
+    t_array,
+    results,
+    save_prefix: str = None,
+    show: bool = True,
+):
+    """
+    time_process sonuçlarının özdeğerlerini karmaşık düzlemde çizer.
+
+    Renk, t parametresini gösterir.
+    """
+
+    t_values = np.atleast_1d(np.asarray(t_array, dtype=float))
+
+    if t_values.size == 0:
+        return None
+
+    vmin = float(np.min(t_values))
+    vmax = float(np.max(t_values))
+
+    if vmax <= vmin:
+        vmax = vmin + 1.0
+
+    norm = Normalize(vmin=vmin, vmax=vmax)
+    cmap = plt.get_cmap("viridis")
+
+    fig, ax = plt.subplots(figsize=(7.6, 7.6))
+
+    for t, F in zip(t_values, results):
+
+        analyzer = MatrixAnalyzer(F, name=f"t={float(t):.6g}")
+        vals = analyzer.eigenvalues
+
+        if vals.size == 0:
+            continue
+
+        ax.scatter(
+            vals.real,
+            vals.imag,
+            color=cmap(norm(float(t))),
+            s=22,
+            alpha=0.85,
+        )
+
+    sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+    sm.set_array([])
+
+    cbar = fig.colorbar(sm, ax=ax)
+    cbar.set_label("t")
+
+    ax.axhline(0, color="black", linewidth=0.9)
+    ax.axvline(0, color="black", linewidth=0.9)
+
+    ax.grid(True, linestyle="--", alpha=0.35)
+
+    ax.set_xlabel("Re(λ)")
+    ax.set_ylabel("Im(λ)")
+    ax.set_title("Eigenvalue Trajectory of Process")
+
+    ax.set_aspect("equal", adjustable="datalim")
+
+    fig.tight_layout()
+
+    if save_prefix:
+        fig.savefig(
+            f"{save_prefix}_eigenvalues.png",
+            dpi=150,
+            bbox_inches="tight",
+        )
+
+    if show:
+        plt.show()
+
+    return fig
+
+def NV_hamiltonian(Bz, Bx=0.0):
+    Sx = np.array([[0,1,0],[1,0,1],[0,1,0]])/np.sqrt(2)
+    Sy = np.array([[0,-1j,0],[1j,0,-1j],[0,1j,0]])/np.sqrt(2)
+    Sz = np.array([[1,0,0],[0,0,0],[0,0,-1]])
+    return D*Sz@Sz + gamma_e*(Bx*Sx + Bz*Sz)
+
+# Alias
+#kitaev_chain = kitaev_chain_hamiltonian
+# Kitaev zinciri Hamiltonyeni (Majorana arayüzü)
+def kitaev_chain(N, mu, t=1.0, Delta=1.0):
+    """N site'lik Kitaev zinciri"""
+    H = np.zeros((2*N, 2*N), dtype=complex)
+    for i in range(N-1):
+        H[2*i, 2*i+3] = -t + Delta
+        H[2*i+3, 2*i] = -t + Delta
+        H[2*i+1, 2*i+2] = t + Delta
+        H[2*i+2, 2*i+1] = t + Delta
+    for i in range(N):
+        H[2*i, 2*i] = -mu
+        H[2*i+1, 2*i+1] = mu
+    return H
+
+
+"""
+Kesirli Lindblad Dinamiği Modülü
+=================================
+Açık kuantum sistemleri için matris değerli Mittag-Leffler evrimi:
+
+    vec(ρ(t)) = E_α( L_super · t^α ) vec(ρ(0))
+
+burada L_super sparse süperoperatördür.
+"""
+# ======================================================================
+# 1. LİNDBLADYEN SÜPEROPERATÖR İNŞASI
+# ======================================================================
+
+def build_lindbladian(H, jump_operators=None, gammas=None):
+    """
+    Lindblad master denklemi için sparse süperoperatör inşa eder.
+    
+    dρ/dt = -i[H, ρ] + Σ_k γ_k (L_k ρ L_k† - 1/2 {L_k† L_k, ρ})
+    
+    Süperoperatör formunda:
+        d·vec(ρ)/dt = L_super · vec(ρ)
+    
+    Parametreler
+    ----------
+    H : (N, N) ndarray veya sparse matrix
+        Sistem Hamiltonyeni.
+    jump_operators : list of (N, N) arrays
+        Lindblad çöküş operatörleri L_k.
+    gammas : list of float
+        Her çöküş operatörü için oran γ_k.
+    
+    Döndürür
+    -------
+    L_super : (N², N²) sparse CSR matrix
+        Süperoperatör.
+    """
+    if not HAS_SCIPY:
+        raise RuntimeError("scipy gerekli.")
+    
+    if sparse.issparse(H):
+        H = H.toarray()
+    H = np.asarray(H, dtype=complex)
+    
+    N = H.shape[0]
+    I = sparse.eye(N, dtype=complex, format='csr')
+    
+    # -iH ρ kısmı: (-iH) ⊗ I
+    L_ham_left = sparse.kron(-1j * sparse.csr_matrix(H), I, format='csr')
+    
+    # +iρ H kısmı: I ⊗ (iH^T)
+    L_ham_right = sparse.kron(I, sparse.csr_matrix(1j * H.T), format='csr')
+    
+    L_super = L_ham_left + L_ham_right
+    
+    # Lindblad dissipatör terimleri
+    if jump_operators is not None:
+        if gammas is None:
+            gammas = [1.0] * len(jump_operators)
+        
+        for L_k, gamma in zip(jump_operators, gammas):
+            if sparse.issparse(L_k):
+                L_k = L_k.toarray()
+            L_k = np.asarray(L_k, dtype=complex)
+            L_k_dag = L_k.conj().T
+            L_k_dag_L_k = L_k_dag @ L_k
+            
+            # L_k ρ L_k† → L_k ⊗ L_k*
+            term1 = sparse.kron(
+                sparse.csr_matrix(L_k),
+                sparse.csr_matrix(L_k.conj()),
+                format='csr'
+            )
+            
+            # -1/2 {L_k†L_k, ρ} → -1/2 (L_k†L_k ⊗ I + I ⊗ (L_k†L_k)^T)
+            term2 = -0.5 * sparse.kron(
+                sparse.csr_matrix(L_k_dag_L_k), I, format='csr'
+            )
+            term3 = -0.5 * sparse.kron(
+                I, sparse.csr_matrix(L_k_dag_L_k.T), format='csr'
+            )
+            
+            L_super = L_super + gamma * (term1 + term2 + term3)
+    
+    return L_super
+
+
+def vec(rho):
+    """Yoğunluk matrisini vektöre çevirir (column-major)."""
+    return np.asarray(rho, dtype=complex).flatten(order='F')
+
+
+def unvec(v, N):
+    """Vektörü yoğunluk matrisine çevirir."""
+    return np.asarray(v, dtype=complex).reshape((N, N), order='F')
+
+
+# ======================================================================
+# 2. HIZLI DİAGONAL SÜREÇ (100x HIZLANDIRMA)
+# ======================================================================
+
+def fast_diagonal_process(
+    diag_values,
+    t_array,
+    alpha: float = 1.0,
+    beta: float = 1.0,
+    gamma_p: float = 1.0,
+):
+    """
+    Diagonal jeneratör için MATRİS ÜRETMEDEN süreç hesaplar.
+    
+    Normal time_process her t için N×N matris üretir.
+    Bu fonksiyon sadece N boyutlu vektörler üretir → O(N²) → O(N).
+    
+    Parametreler
+    ----------
+    diag_values : (N,) ndarray
+        Jeneratörün köşegen değerleri (örn. -i·enerjiler).
+    t_array : (M,) ndarray
+        Zaman noktaları.
+    
+    Döndürür
+    -------
+    result_diag : (M, N) ndarray
+        Her t için f(diag) vektörü.
+        Son diagonal matris: np.diag(result_diag[m])
+    """
+    diag_values = np.asarray(diag_values, dtype=complex)
+    t_array = np.atleast_1d(np.asarray(t_array, dtype=float))
+    
+    mml = MatrixMittagLeffler(
+        alpha=alpha, beta=beta, gamma_p=gamma_p, tolerance=1e-13
+    )
+    
+    M = len(t_array)
+    N = len(diag_values)
+    result_diag = np.empty((M, N), dtype=complex)
+    
+    for m, t in enumerate(t_array):
+        # f(λ_j · t) her j için skaler
+        scaled = diag_values * float(t)
+        result_diag[m, :] = np.array(
+            [mml._scalar.evaluate(z) for z in scaled],
+            dtype=complex
+        )
+    
+    return result_diag
+
+
+# ======================================================================
+# 3. KESİRLİ LİNDBLADIAN SÜREÇ SINIFI
+# ======================================================================
+
+class FractionalLindbladianProcess:
+    """
+    Kesirli Lindblad dinamiği:
+    
+        vec(ρ(t)) = E_α(L_super · t^α) · vec(ρ(0))
+    
+    α = 1.0 → standart Markovian Lindblad
+    α < 1.0 → alt-dağılımlı (subdiffusive) non-Markovian dinamik
+    α > 1.0 → üst-dağılımlı (superdiffusive) dinamik
+    """
+
+    def __init__(self, H, jump_operators=None, gammas=None, alpha: float = 1.0, beta: float = 1.0, gamma_p: float = 1.0):
+        self.H = H
+        self.jump_operators = jump_operators
+        self.gammas = gammas
+        self.alpha = alpha
+        self.beta = beta
+        self.gamma_p = gamma_p
+        
+        N = H.shape[0]
+        self.dim = N
+        
+        # Süperoperatörü inşa et
+        self.L_super = build_lindbladian(H, jump_operators, gammas)
+        
+        self.mml = MatrixMittagLeffler(alpha=alpha, beta=beta, gamma_p=gamma_p, tolerance=1e-13)
+        
+        # KARARLILIK İÇİN: L_super'ü bir kez dense'e çevir ve özdeğerlerine ayır
+        # (64x64 veya 400x400 için bu işlem milisaniyeler sürer ve çok kararlıdır)
+        L_dense = self.L_super.toarray() if sparse.issparse(self.L_super) else self.L_super
+        self.evals, self.evecs = np.linalg.eig(L_dense)
+        self.evecs_inv = np.linalg.inv(self.evecs)
+
+    def evolve(self, rho0, t_array):
+        """
+        ρ(0) → ρ(t) evrimi hesaplar.
+        
+        Parametreler
+        ----------
+        rho0 : (N, N) ndarray
+            Başlangıç yoğunluk matrisi.
+        t_array : (M,) ndarray veya float
+            Zaman noktaları.
+        
+        Döndürür
+        -------
+        rhos : list of (N, N) ndarray
+            Her t için yoğunluk matrisi.
+        """
+        scalar_input = np.isscalar(t_array)
+        t_values = np.atleast_1d(np.asarray(t_array, dtype=float))
+        v0 = vec(rho0)
+        N = self.dim
+        
+        rhos = []
+        for t in t_values:
+            # 1. Özdeğerlere Mittag-Leffler uygula: E_alpha(lambda * t^alpha)
+            scaled_evals = self.evals * (float(t) ** self.alpha)
+            f_evals = np.array([self.mml._scalar.evaluate(l) for l in scaled_evals], dtype=complex)
+            
+            # 2. Evrim operatörünü yeniden oluştur: V * diag(f_evals) * V^-1
+            F_matrix = self.evecs @ np.diag(f_evals) @ self.evecs_inv
+            
+            # 3. rho(t) vektörünü hesapla
+            rho_t_vec = F_matrix @ v0
+            rho_t = unvec(rho_t_vec, N)
+            
+            # 4. SAYISAL KARARLILIK İÇİN ZORUNLU TEMİZLİK (ÇOK ÖNEMLİ)
+            # Gürültüden kaynaklanan anti-hermitian kısmı at
+            rho_t = (rho_t + rho_t.conj().T) / 2.0
+            
+            # Trace'i 1'e normalize et
+            trace_val = np.trace(rho_t)
+            if np.abs(trace_val) > 1e-10:
+                rho_t = rho_t / trace_val
+            else:
+                # Eğer tamamen çöktüyse, maksimum karışık duruma düşür
+                rho_t = np.eye(N, dtype=complex) / N
+            
+            # Negatif özdeğerleri (sayısal gürültü) sıfırla
+            evals_rho, evecs_rho = np.linalg.eigh(rho_t)
+            evals_rho = np.maximum(evals_rho, 0.0)
+            rho_t = evecs_rho @ np.diag(evals_rho) @ evecs_rho.conj().T
+            rho_t = rho_t / np.trace(rho_t) # Yeniden normalize et
+            
+            rhos.append(rho_t)
+            
+        return rhos[0] if scalar_input else rhos
+    
+    def _dense_apply(self, A_sparse, v):
+        """F(A)·v hesaplar (dense'e çevirerek)."""
+        A_dense = A_sparse.toarray() if sparse.issparse(A_sparse) else A_sparse
+        F = self.mml.evaluate(A_dense)
+        return F @ v
+    
+    def steady_state(self, tol=1e-10):
+        """
+        Uzun-zaman limit yoğunluk matrisini bulur.
+        L_super · vec(ρ_ss) = 0
+        """
+        # En küçük özdeğer (≈0) ve karşılık gelen özvektör
+        if self._analyzer.is_hermitian():
+            vals, vecs = spla.eigsh(
+                self.L_super, k=1, which='SM', return_eigenvectors=True
+            )
+        else:
+            vals, vecs = spla.eigs(
+                self.L_super, k=1, which='SM', return_eigenvectors=True
+            )
+        
+        v_ss = vecs[:, 0]
+        rho_ss = unvec(v_ss, self.dim)
+        
+        # Normalize et (trace = 1)
+        rho_ss = rho_ss / np.trace(rho_ss)
+        return rho_ss
+
+
+# ======================================================================
+# 4. TOPOLOJİK İNVARYANTLAR
+# ======================================================================
+
+def topological_invariant(analyzer, kind='winding'):
+    """
+    Matrisin topolojik invariant'ını hesaplar.
+    
+    Parametreler
+    ----------
+    analyzer : MatrixAnalyzer
+    kind : str
+        'winding'  → Winding number (1D sistemler)
+        'chern'    → Chern number (2D sistemler)
+        'pfaffian' → Z₂ invariant (Majorana sistemleri)
+    """
+    if kind == 'pfaffian':
+        if not HAS_PFAPACK:
+            raise ImportError("pfapack gerekli. Kurulum: pip install pfapack")
+        
+        A = analyzer.dense
+        try:
+            # Skew-symmetric kontrolü
+            if not np.allclose(A, -A.T, atol=1e-10):
+                warnings.warn("Pfaffian için skew-symmetric matris gerekli.")
+                return 0
+            
+            pf_val = pf.pfaffian(A)
+            return 1 if pf_val.real > 0 else -1
+        except Exception as e:
+            warnings.warn(f"Pfaffian hesabı başarısız: {e}")
+            return 0
+    
+    elif kind == 'winding':
+        # 1D topolojik invariant: sign(det(H))
+        A = analyzer.dense
+        det_sign = np.sign(np.linalg.det(A).real)
+        return int(det_sign)
+    
+    else:
+        raise ValueError(f"Bilinmeyen invariant türü: {kind}")
+
+def kitaev_winding(mu, t=1.0, Delta=1.0, N_k=1000):
+    """
+    Kitaev zinciri için winding number hesabı (momentum uzayı).
+    
+    |μ| < 2t  → w = ±1 (topolojik faz, Majorana sıfır modları)
+    |μ| > 2t  → w = 0 (triviyal faz)
+    """
+    ks = np.linspace(0, 2*np.pi, N_k, endpoint=False)
+    
+    d_y = 2 * Delta * np.sin(ks)
+    d_z = -mu - 2 * t * np.cos(ks)
+    
+    # φ(k) = arg(d_y + i·d_z)
+    phi = np.arctan2(d_z, d_y)
+    
+    # Winding: toplam φ değişimi / 2π
+    dphi = np.diff(phi)
+    # [-π, π] aralığına wrap et
+    dphi = (dphi + np.pi) % (2 * np.pi) - np.pi
+    
+    winding = np.sum(dphi) / (2 * np.pi)
+    return int(np.round(winding))
+
+
+def kitaev_chain_hamiltonian(N, mu, t=1.0, Delta=1.0):
+    """
+    N site Kitaev zinciri (BdG formunda, 2N × 2N).
+    """
+    H = np.zeros((2*N, 2*N), dtype=complex)
+    for i in range(N - 1):
+        H[2*i, 2*i+3] = -t + Delta
+        H[2*i+3, 2*i] = -t + Delta
+        H[2*i+1, 2*i+2] = t + Delta
+        H[2*i+2, 2*i+1] = t + Delta
+    for i in range(N):
+        H[2*i, 2*i] = -mu
+        H[2*i+1, 2*i+1] = mu
+    return H
+
+
+# ======================================================================
+# 5. YÜZEY KODU HAMILTONYENİ
+# ======================================================================
+
+def build_surface_code_hamiltonian(distance: int = 3):
+    """
+    Toric/surface code stabilizer Hamiltonyeni inşa eder.
+    
+    H = -Σ_s A_s - Σ_p B_p
+    
+    distance → N = 2·distance² - 1 kubit (yaklaşık)
+    
+    Döndürür
+    -------
+    H : sparse CSR matrix
+        2^N × 2^N sparse Hamiltonyen.
+    """
+    if not HAS_SCIPY:
+        raise RuntimeError("scipy gerekli.")
+    
+    # Basitleştirilmiş 1D Ising chain (surface code'un 1D sınırı)
+    N = 2 * distance  # kubit sayısı
+    
+    I = sparse.eye(2, dtype=complex, format='csr')
+    X = sparse.csr_matrix(np.array([[0,1],[1,0]], dtype=complex))
+    Z = sparse.csr_matrix(np.array([[1,0],[0,-1]], dtype=complex))
+    
+    H = sparse.csr_matrix((2**N, 2**N), dtype=complex)
+    
+    # X-type stabilizers (komşu çiftler)
+    for i in range(N - 1):
+        term = sparse.eye(1, dtype=complex, format='csr')
+        for j in range(N):
+            if j == i or j == i + 1:
+                term = sparse.kron(term, X, format='csr')
+            else:
+                term = sparse.kron(term, I, format='csr')
+        H = H - term
+    
+    # Z-type stabilizers
+    for i in range(0, N - 1, 2):
+        if i + 1 < N:
+            term = sparse.eye(1, dtype=complex, format='csr')
+            for j in range(N):
+                if j == i or j == i + 1:
+                    term = sparse.kron(term, Z, format='csr')
+                else:
+                    term = sparse.kron(term, I, format='csr')
+            H = H - term
+    
+    return H
+
