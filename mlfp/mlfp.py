@@ -3252,12 +3252,12 @@ def time_process(
 # ======================================================================
 # 3. Süreç metrikleri grafiği
 # ======================================================================
-
 def plot_time_process_metrics(
     t_array,
     results,
     save_prefix: str = None,
     show: bool = True,
+    return_analyzers=False,
 ):
     """
     time_process sonuçları üzerinden temel metrikleri çizer:
@@ -3319,7 +3319,9 @@ def plot_time_process_metrics(
     if show:
         plt.show()
 
-    return fig, analyzers
+    if return_analyzers:
+        return fig, analyzers
+    return fig
 
 
 # ======================================================================
@@ -3671,27 +3673,29 @@ class FractionalLindbladianProcess:
         F = self.mml.evaluate(A_dense)
         return F @ v
     
-    def steady_state(self, tol=1e-10):
+    def steady_state(self, tol: float = 1e-10) -> np.ndarray:
         """
-        Uzun-zaman limit yoğunluk matrisini bulur.
-        L_super · vec(ρ_ss) = 0
+        Uzun-zaman limit yoğunluk matrisi.
+
+        L_super · vec(ρ_ss) = 0  →  en küçük |λ| özvektörü.
+
+        __init__'te hesaplanmış self.evals/self.evecs kullanılır.
         """
-        # En küçük özdeğer (≈0) ve karşılık gelen özvektör
-        if self._analyzer.is_hermitian():
-            vals, vecs = spla.eigsh(
-                self.L_super, k=1, which='SM', return_eigenvectors=True
-            )
-        else:
-            vals, vecs = spla.eigs(
-                self.L_super, k=1, which='SM', return_eigenvectors=True
-            )
-        
-        v_ss = vecs[:, 0]
+        idx = int(np.argmin(np.abs(self.evals)))
+        lam_min = self.evals[idx]
+
+        if np.abs(lam_min) > tol:
+            import warnings
+            warnings.warn(
+                f"Kararlı durum yok: min |λ| = {np.abs(lam_min):.2e} > tol={tol}",
+                RuntimeWarning, stacklevel=2)
+
+        v_ss = self.evecs[:, idx]
         rho_ss = unvec(v_ss, self.dim)
-        
-        # Normalize et (trace = 1)
-        rho_ss = rho_ss / np.trace(rho_ss)
-        return rho_ss
+        tr = np.trace(rho_ss)
+        if abs(tr) < 1e-15:
+            raise RuntimeError("Kararlı durum izi sıfır — normalize edilemiyor")
+        return rho_ss / tr
 
 
 # ======================================================================
