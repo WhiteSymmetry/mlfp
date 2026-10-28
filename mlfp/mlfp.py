@@ -2757,10 +2757,8 @@ def _eigenvalue_comparison(analyzers, ax=None):
 # ----------------------------------------------------------------------
 # Ana dashboard fonksiyonu
 # ----------------------------------------------------------------------
-
 def analyze_and_plot_transform(
-    A,
-    mml,
+    A, mml,
     name: str = "A",
     sparse_output: bool = False,
     save_prefix: str = None,
@@ -2768,31 +2766,52 @@ def analyze_and_plot_transform(
     verbose: bool = True,
 ):
     """
-    A matrisini ve E(A) = MatrixMittagLeffler.evaluate(A) sonucunu
-    analiz edip yan yana grafikler üretir.
+    A matrisini ve E(A) = E^γ_{α,β}(A) matrix fonksiyonunu analiz edip
+    yan yana grafikler üretir.
+
+    mml argümanı
+    ------------
+    MittagLeffler                    → otomatik MatrixMittagLeffler'e yükseltilir
+    MatrixMittagLeffler              → doğrudan kullanılır
+    SparseHermitianMatrixMittagLeffler → sparse_output destekler
+
+    Not: A element-wise DEĞİL, matris fonksiyonu olarak değerlendirilir.
     """
+    # --- 1) Doğru evaluator'ü seç ---
+    if isinstance(mml, MittagLeffler):
+        gamma_val = getattr(mml, 'gamma', 1.0)
+        mml_matrix = MatrixMittagLeffler(
+            alpha=mml.alpha,
+            beta=mml.beta,
+            gamma=gamma_val,
+            tolerance=getattr(mml, 'tolerance', 1e-13),
+        )
+    elif isinstance(mml, MatrixMittagLeffler):
+        # SparseHermitianMatrixMittagLeffler bunun alt sınıfı → buraya düşer
+        mml_matrix = mml
+    else:
+        raise TypeError(
+            f"mml MittagLeffler veya MatrixMittagLeffler olmalı; "
+            f"{type(mml).__name__} verildi"
+        )
 
-    # 1. A analizi
-    A_analyzer = MatrixAnalyzer(A, name=name)
-
-    # 2. E(A) hesapla
+    # --- 2) F'yi BİR KEZ hesapla (matrix function) ---
     try:
-        F = mml.evaluate(A, sparse_output=sparse_output)
+        F = mml_matrix.evaluate(A, sparse_output=sparse_output)
     except TypeError:
-        # Eğer evaluate sparse_output parametresi desteklemiyorsa
-        F = mml.evaluate(A)
+        # MatrixMittagLeffler sparse_output parametresi kabul etmez
+        F = mml_matrix.evaluate(A)
 
-    F_name = f"E({name})"
-
-    # 3. E(A) analizi
-    F_analyzer = MatrixAnalyzer(F, name=F_name)
+    # --- 3) Analiz ---
+    A_analyzer = MatrixAnalyzer(A, name=name)
+    F_analyzer = MatrixAnalyzer(F, name=f"E({name})")
 
     analyzers = [A_analyzer, F_analyzer]
+    F_name = f"E({name})"
 
-    # 4. Konsol raporu
     if verbose:
-        _print_report(A_analyzer)
-        _print_report(F_analyzer)
+        print(A_analyzer.report())
+        print(F_analyzer.report())
 
     figures = {}
 
@@ -3403,13 +3422,48 @@ def plot_time_process_eigenvalues(
 
     return fig
 
-def NV_hamiltonian(Bz, Bx=0.0):
-    Sx = np.array([[0,1,0],[1,0,1],[0,1,0]])/np.sqrt(2)
-    Sy = np.array([[0,-1j,0],[1j,0,-1j],[0,1j,0]])/np.sqrt(2)
-    Sz = np.array([[1,0,0],[0,0,0],[0,0,-1]])
-    return D*Sz@Sz + gamma_e*(Bx*Sx + Bz*Sz)
+# ============================================================================
+# mlfp.py — NV sabitleri (modül seviyesinde, fonksiyondan ÖNCE)
+# ============================================================================
+_D_NV_GHZ          = 2.87    # GHz — zero-field splitting (ms=0 ↔ ms=±1)
+_GAMMA_E_GHZ_PER_T = 28.0    # GHz/T — elektron gyromanyetik oranı
+                             # (= 2.8 MHz/G = 28 GHz/T)
 
-# Alias
+
+def NV_hamiltonian(Bz, Bx=0.0, D=None, gamma_e=None, E_strain=0.0):
+    """
+    NV merkezi taban durumu (S=1 triplet) Hamiltonian'ı.
+
+        H = D·Sz² + E_strain·(Sx² - Sy²) + γ_e·(Bx·Sx + Bz·Sz)
+
+    Parametreler
+    ------------
+    Bz, Bx     : float    Manyetik alan bileşenleri (Tesla)
+    D          : float    Zero-field splitting (GHz); varsayılan 2.87
+    gamma_e    : float    Gyromanyetik oran (GHz/T); varsayılan 28
+    E_strain   : float    Strain splitting (GHz); varsayılan 0
+
+    Döndürür
+    --------
+    H : ndarray (3,3) complex
+    """
+    if D is None:
+        D = _D_NV_GHZ
+    if gamma_e is None:
+        gamma_e = _GAMMA_E_GHZ_PER_T
+
+    Sx = np.array([[0, 1, 0], [1, 0, 1], [0, 1, 0]],
+                  dtype=complex) / np.sqrt(2)
+    Sy = np.array([[0, -1j, 0], [1j, 0, -1j], [0, 1j, 0]],
+                  dtype=complex) / np.sqrt(2)
+    Sz = np.array([[1, 0, 0], [0, 0, 0], [0, 0, -1]],
+                  dtype=complex)
+
+    return (D * (Sz @ Sz)
+            + E_strain * (Sx @ Sx - Sy @ Sy)
+            + gamma_e * (Bx * Sx + Bz * Sz))
+
+# Alias:artık bu fonksiyon burada kullanılmıyor
 #kitaev_chain = kitaev_chain_hamiltonian
 # Kitaev zinciri Hamiltonyeni (Majorana arayüzü)
 def kitaev_chain(N, mu, t=1.0, Delta=1.0):
