@@ -4,17 +4,17 @@ schema_version: 1
 # this sets up "context variables" (in this case name and version) that
 # can later be used in Jinja expressions
 context:
-  version: 0.1.6
+  version: 0.1.7
   name: mlfp
 
 # top level package information (name and version)
 package:
   name: mlfp
-  version: 0.1.6
+  version: 0.1.7
 
 source:
   url: https://pypi.org/packages/source/${{ name[0] }}/${{ name }}/${{ name }}-${{ version }}.tar.gz
-  sha256: ff6e92990ced314930304f9021e503f58bd6cea2caa700d4b7d13940eb66e638
+  sha256: 
 
 # build number (should be incremented if a new build is made, but version is not incrementing)
 build:
