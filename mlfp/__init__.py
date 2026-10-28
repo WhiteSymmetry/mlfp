@@ -22,9 +22,9 @@ Mittag-Leffler ve Prabhakar fonksiyonlarının hesaplanması.
 Compatible with Python 3.11-3.15.
 """
 
-__version__ = "0.1.6"
+__version__ = "0.1.7"
 __author__ = "Mehmet Keçeci"
-__main__ = "0.1.6"
+__main__ = "0.1.7"
 
 from .mlfp import (
     # Temel eğri sınıfları
@@ -51,6 +51,32 @@ from .mlfp import (
     local_amplitude_damping,
     amplitude_damping_channel,
     amplitude_damping_kraus,
+    MatrixAnalyzer,
+    _is_sparse,
+    analyze_and_plot_transform,
+    _eigenvalue_comparison,
+    _matrix_heatmap_axis,
+    _summary_heatmap,
+    _print_report,
+    _collect_property_names,
+    DASHBOARD_PROPERTY_ORDER,
+    plot_time_process_eigenvalues,
+    plot_time_process_metrics,
+    time_process,
+    _evaluate_with_kwargs,
+    SparseHermitianMatrixMittagLeffler,
+    NV_hamiltonian,
+    kitaev_chain,
+    build_surface_code_hamiltonian,
+    topological_invariant,
+    FractionalLindbladianProcess,
+    fast_diagonal_process,
+    vec,
+    unvec,
+    build_lindbladian,
+    kitaev_chain_hamiltonian,
+    kitaev_winding,
+
 
 )
 
@@ -100,5 +126,29 @@ __all__ = [
     "local_amplitude_damping",
     "amplitude_damping_channel",
     "amplitude_damping_kraus",
-
+    "MatrixAnalyzer",
+    "_is_sparse",
+    "analyze_and_plot_transform",
+    "_eigenvalue_comparison",
+    "_matrix_heatmap_axis",
+    "_summary_heatmap",
+    "_print_report",
+    "_collect_property_names",
+    "DASHBOARD_PROPERTY_ORDER",
+    "plot_time_process_eigenvalues",
+    "plot_time_process_metrics",
+    "time_process",
+    "_evaluate_with_kwargs",
+    "SparseHermitianMatrixMittagLeffler",
+    "NV_hamiltonian",
+    "kitaev_chain",
+    "build_surface_code_hamiltonian",
+    "topological_invariant",
+    "FractionalLindbladianProcess",
+    "fast_diagonal_process",
+    "vec",
+    "unvec",
+    "build_lindbladian",
+    "kitaev_chain_hamiltonian",
+    "kitaev_winding",
 ]
