@@ -606,6 +606,15 @@ ile dinamik olarak belirlenerek `mpmath` ile hesaplanır. Bu, küçük $\alpha$ 
 
 ## Sürüm Geçmişi
 
+0.1.7 özellikleri (0.1.6'e göre)
+================================
+Modül sayısı: +analyzer, +process, +lindblad
+Matris özellikleri: 16+
+Sparse desteği: Tam (CSR/CSC/COO)
+Fiziksel modeller: +Kitaev, +NV, +Surface Code, +Lindbladian
+Grafik sistemi: Dashboard +6 plot fonksiyonu
+Kararlılık: Bulletproof (NaN/Inf/Trace koruması)
+
 0.1.6 özellikleri (0.1.5'e göre)
 ================================
 1. **T₁ (Genlik Sönümü) Kanalı Eklendi:** `FractionalAmplitudeDamping` sınıfı ve ilgili yardımcı fonksiyonlar 
