@@ -735,6 +735,16 @@ MIT Lisansı altında dağıtılmaktadır. Ayrıntılar için `LICENSE` dosyası
 Bu kütüphaneyi akademik bir çalışmada kullanıyorsanız, aşağıdaki biçimde atıf yapabilirsiniz:
 
 ```bibtex
+@software{kececi_mlfpaperta,
+  author       = {Keçeci, Mehmet},
+  title        = {mlfp},
+  month        = {nov},
+  year         = {2026},
+  publisher    = {Açık Bilim Veri Alanı (ABVA), Aperta},
+  version      = {0.1.8},
+  doi          = {10.5281/zenodo.23549172},
+  url          = {https://aperta.ulakbim.gov.tr/records/303844},
+}
 @article{kececi_2026_23997740,
   author       = {Keçeci, Mehmet},
   title        = {Detecting Fractional Quantum Memory in NV Centers:
@@ -775,7 +785,7 @@ Bu kütüphaneyi akademik bir çalışmada kullanıyorsanız, aşağıdaki biçi
   month        = oct,
   year         = 2026,
   publisher    = {Open Science Articles (OSAs), Zenodo},
-  version      = {0.1.3},
+  version      = {0.1.8},
   doi          = {10.5281/zenodo.23549172},
   url          = {https://doi.org/10.5281/zenodo.23549172},
 }
