@@ -1,4 +1,4 @@
-name: Python package CI python-package.yml
+name: Codecov
 
 
 permissions:
@@ -17,7 +17,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-latest]
         python-version: ["3.14"]
 
     steps:
