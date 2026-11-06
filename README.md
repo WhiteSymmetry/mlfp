@@ -735,6 +735,17 @@ MIT Lisansı altında dağıtılmaktadır. Ayrıntılar için `LICENSE` dosyası
 Bu kütüphaneyi akademik bir çalışmada kullanıyorsanız, aşağıdaki biçimde atıf yapabilirsiniz:
 
 ```bibtex
+@misc{kececi_2026_23997740,
+  author       = {Keçeci, Mehmet},
+  title        = {Detecting Fractional Quantum Memory in NV Centers:
+                   Model Selection, SNR, and Protocol-Count Criteria
+                  },
+  month        = {nov},
+  year         = {2026},
+  publisher    = {Open Science Articles (OSAs), Zenodo},
+  doi          = {10.5281/zenodo.23997739},
+  url          = {https://doi.org/10.5281/zenodo.23997739},
+}
 @article{kececi_2026_23605556,
   author       = {Keçeci, Mehmet},
   title        = {Kesirli Kuantum Dinamiği Altında Stratum Mimarisi:
@@ -743,7 +754,7 @@ Bu kütüphaneyi akademik bir çalışmada kullanıyorsanız, aşağıdaki biçi
                   },
   month        = oct,
   year         = 2026,
-  publisher    = {Zenodo},
+  publisher    = {Open Science Articles (OSAs), Zenodo},
   doi          = {10.5281/zenodo.23605556},
   url          = {https://doi.org/10.5281/zenodo.23605556},
 }
