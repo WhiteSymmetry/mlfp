@@ -735,7 +735,7 @@ MIT Lisansı altında dağıtılmaktadır. Ayrıntılar için `LICENSE` dosyası
 Bu kütüphaneyi akademik bir çalışmada kullanıyorsanız, aşağıdaki biçimde atıf yapabilirsiniz:
 
 ```bibtex
-@misc{kececi_2026_23997740,
+@article{kececi_2026_23997740,
   author       = {Keçeci, Mehmet},
   title        = {Detecting Fractional Quantum Memory in NV Centers:
                    Model Selection, SNR, and Protocol-Count Criteria
