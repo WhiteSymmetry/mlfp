@@ -1,9 +1,7 @@
 name: Publish Python Package to PyPI-jekyll-gh-pages.yml
 
 on:
-  push:
-    branches: ["main"]
-  workflow_dispatch:
+  workflow_dispatch:  # elle tetikleme
 
 jobs:
   publish:
